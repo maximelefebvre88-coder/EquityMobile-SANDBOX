@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Deep Metallic Steel Dark Gradient Base -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#1A2228" />
+                <item android:offset="0.3" android:color="#0F1418" />
+                <item android:offset="1.0" android:color="#040506" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Subtle Tech Metallic Concentric Rings -->
+    <path
+        android:pathData="M 54,54 m -46,0 a 46,46 0 1,1 92,0 a 46,46 0 1,1 -92,0"
+        android:strokeWidth="0.8"
+        android:strokeColor="#10FFFFFF" />
+
+    <path
+        android:pathData="M 54,54 m -38,0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"
+        android:strokeWidth="0.6"
+        android:strokeColor="#08FFFFFF" />
+
+    <path
+        android:pathData="M 54,54 m -28,0 a 28,28 0 1,1 56,0 a 28,28 0 1,1 -56,0"
+        android:strokeWidth="0.5"
+        android:strokeColor="#2200E676" />
+
+    <!-- Soft Radial Green Accent/Glow behind the logo -->
+    <path
+        android:pathData="M 54,54 m -20,0 a 20,20 0 1,1 40,0 a 20,20 0 1,1 -40,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="54"
+                android:gradientRadius="35"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#4400E676" />
+                <item android:offset="1.0" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+</vector>

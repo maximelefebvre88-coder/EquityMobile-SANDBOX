@@ -1,0 +1,6 @@
+{
+  "name": "Equity IQ",
+  "description": "Native Android app for options trading and DCF stock valuation with an elegant dark theme.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
