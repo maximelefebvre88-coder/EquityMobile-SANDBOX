@@ -177,8 +177,9 @@ class MainActivity : ComponentActivity() {
                                         Column {
                                             Text(
                                                 text = "Equity IQ",
-                                                fontWeight = FontWeight.ExtraBold,
-                                                fontSize = 18.sp,
+                                                fontFamily = RecoletaFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 20.sp,
                                                 color = Color.White,
                                                 letterSpacing = 0.5.sp
                                             )
