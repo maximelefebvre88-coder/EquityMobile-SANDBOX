@@ -94,14 +94,23 @@ class FinanceViewModel(
                 syncError.value = null
             }
         }
-        // Automatically ensure any unpriced ticker in the watchlist gets its live price synced
+        // Automatically ensure any unpriced ticker in the watchlist gets its live price synced with cooldown
+        val unpricedCooldownMap = java.util.concurrent.ConcurrentHashMap<String, Long>()
         viewModelScope.launch {
             watchlist.collect { list ->
-                val unpriced = list.filter { it.livePrice <= 0.0 && it.symbol.isNotBlank() && it.symbol != "CASH" }
+                val now = System.currentTimeMillis()
+                val unpriced = list.filter { 
+                    it.livePrice <= 0.0 && 
+                    it.symbol.isNotBlank() && 
+                    it.symbol != "CASH" &&
+                    (now - (unpricedCooldownMap[it.symbol.uppercase().trim()] ?: 0L)) > 60_000L
+                }
                 if (unpriced.isNotEmpty() && !isSyncingAll.value && tickerSyncing.value == null) {
                     unpriced.forEach { ticker ->
+                        val sym = ticker.symbol.uppercase().trim()
+                        unpricedCooldownMap[sym] = System.currentTimeMillis()
                         try {
-                            useCases.syncTickerData(ticker.symbol, force = false)
+                            useCases.syncTickerData(sym, force = false)
                         } catch (e: Exception) {
                             // Non-fatal background sync
                         }

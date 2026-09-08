@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.CalculatorSnapshot
+import com.example.domain.util.getTickerCurrency
 import com.example.ui.theme.*
 import com.example.viewmodel.FinanceViewModel
 import coil.compose.AsyncImage
@@ -49,8 +50,7 @@ fun CalculatorScreen(
     val snapshot by viewModel.activeCalculatorSnapshot.collectAsStateWithLifecycle()
     val isSyncing by viewModel.tickerSyncing.collectAsStateWithLifecycle()
     val syncError by viewModel.syncError.collectAsStateWithLifecycle()
-    val currencyMultiplier by viewModel.currencyMultiplier.collectAsStateWithLifecycle()
-    val baseCurrency by viewModel.currencyFlow.collectAsStateWithLifecycle()
+    val tickerCurrency = getTickerCurrency(activeTicker)
 
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
@@ -279,9 +279,8 @@ fun CalculatorScreen(
                                         ) {
                                             Column {
                                                 Text("STOCK PRICE", fontSize = 8.sp, color = GrayText, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-                                                val convertedPrice = currentLivePrice * currencyMultiplier
                                                 Text(
-                                                    text = String.format(Locale.getDefault(), "$%.2f", convertedPrice),
+                                                    text = String.format(Locale.getDefault(), "$%.2f %s", currentLivePrice, tickerCurrency),
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.Black,
                                                     color = Color.White
@@ -351,37 +350,34 @@ fun CalculatorScreen(
                         val riskPremium = snap.riskPremium
                         val requiredReturn = riskFree + riskPremium
                         val fcfPerShare = snap.fcfPerShare
-                        val currentPriceUsd = snap.currentPrice
+                        val currentPrice = snap.currentPrice
 
                         // Core output parameters calculated in real-time
-                        val fcfYield = if (currentPriceUsd > 0.0) (fcfPerShare / currentPriceUsd) * 100.0 else 0.0
+                        val fcfYield = if (currentPrice > 0.0) (fcfPerShare / currentPrice) * 100.0 else 0.0
                         val impliedGrowth = requiredReturn - fcfYield
 
                         // 1. Market Free Cashflow Sentiment (Historical FCF Yield Normalization)
                         val histFcfYield = snap.historicalFcfYield
-                        val fcfSentimentValueUsd = if (histFcfYield > 0.0) {
+                        val fcfSentimentValue = if (histFcfYield > 0.0) {
                             snap.fcfPerShare / (histFcfYield / 100.0)
                         } else 0.0
-                        val fcfSentimentValueBase = fcfSentimentValueUsd * currencyMultiplier
-                        val livePriceBase = currentPriceUsd * currencyMultiplier
+                        val livePrice = currentPrice
 
-                        val fcfSentimentDiffPct = if (fcfSentimentValueBase > 0.0 && livePriceBase > 0.0) {
-                            ((fcfSentimentValueBase - livePriceBase) / livePriceBase) * 100.0
+                        val fcfSentimentDiffPct = if (fcfSentimentValue > 0.0 && livePrice > 0.0) {
+                            ((fcfSentimentValue - livePrice) / livePrice) * 100.0
                         } else 0.0
 
                         // 2. Two-Stage DCF (Dynamic Moat-Quality Adjusted)
-                        val (fairValueUsd, dcfAdjustment) = viewModel.calculateMoatQualityAdjustedDcf(snap)
-                        val fairValueBase = fairValueUsd * currencyMultiplier
+                        val (fairValue, dcfAdjustment) = viewModel.calculateMoatQualityAdjustedDcf(snap)
 
-                        val dcfDiffPct = if (fairValueBase > 0.0 && livePriceBase > 0.0) {
-                            ((fairValueBase - livePriceBase) / livePriceBase) * 100.0
+                        val dcfDiffPct = if (fairValue > 0.0 && livePrice > 0.0) {
+                            ((fairValue - livePrice) / livePrice) * 100.0
                         } else 0.0
 
                         // 3. Buffett Shortcut (Dynamic Moat-Quality Adjusted)
-                        val buffettValueUsd = viewModel.calculateMoatQualityAdjustedBuffett(snap, dcfAdjustment)
-                        val buffettValueBase = buffettValueUsd * currencyMultiplier
-                        val buffettDiffPct = if (buffettValueBase > 0.0 && livePriceBase > 0.0) {
-                            ((buffettValueBase - livePriceBase) / livePriceBase) * 100.0
+                        val buffettValue = viewModel.calculateMoatQualityAdjustedBuffett(snap, dcfAdjustment)
+                        val buffettDiffPct = if (buffettValue > 0.0 && livePrice > 0.0) {
+                            ((buffettValue - livePrice) / livePrice) * 100.0
                         } else 0.0
 
                         // Cards Row (FCF Yield, Implied Growth, Required Return)
@@ -438,7 +434,7 @@ fun CalculatorScreen(
                                     Spacer(modifier = Modifier.height(10.dp))
 
                                     Text(
-                                        text = String.format(Locale.getDefault(), "$%.2f %s", fcfSentimentValueBase, baseCurrency),
+                                        text = String.format(Locale.getDefault(), "$%.2f %s", fcfSentimentValue, tickerCurrency),
                                         fontSize = 32.sp,
                                         fontWeight = FontWeight.Black,
                                         color = LightText,
@@ -506,7 +502,7 @@ fun CalculatorScreen(
                                     Spacer(modifier = Modifier.height(10.dp))
 
                                     Text(
-                                        text = String.format(Locale.getDefault(), "$%.2f %s", fairValueBase, baseCurrency),
+                                        text = String.format(Locale.getDefault(), "$%.2f %s", fairValue, tickerCurrency),
                                         fontSize = 32.sp,
                                         fontWeight = FontWeight.Black,
                                         color = LightText,
@@ -626,7 +622,7 @@ fun CalculatorScreen(
                                     Spacer(modifier = Modifier.height(8.dp))
 
                                     Text(
-                                        text = String.format(Locale.getDefault(), "$%.2f %s", buffettValueBase, baseCurrency),
+                                        text = String.format(Locale.getDefault(), "$%.2f %s", buffettValue, tickerCurrency),
                                         fontSize = 24.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = LightText,
@@ -662,13 +658,12 @@ fun CalculatorScreen(
                             // 2. Stock Purchase Price Allocation Split
                             // No-Growth Value = (FCF per Share / (Hurdle Rate / 100.0)) + Net Cash per Share
                             val discountFraction = hurdleRate / 100.0
-                            val noGrowthValueUsd = if (discountFraction > 0.0) {
+                            val noGrowthValue = if (discountFraction > 0.0) {
                                 (fcfPerShare / discountFraction) + snap.netCashPerShare
                             } else 0.0
-                            val noGrowthValueBase = noGrowthValueUsd * currencyMultiplier
 
-                            val pricePaidForFcfYieldPct = if (currentPriceUsd > 0.0) {
-                                (noGrowthValueUsd / currentPriceUsd) * 100.0
+                            val pricePaidForFcfYieldPct = if (currentPrice > 0.0) {
+                                (noGrowthValue / currentPrice) * 100.0
                             } else 0.0
                             
                             val pricePaidForGrowthPct = 100.0 - pricePaidForFcfYieldPct
@@ -783,7 +778,7 @@ fun CalculatorScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = String.format(Locale.getDefault(), "Of the purchase price of $%.2f %s, $%.2f is backed by current business cash yield (FCF) zero-growth asset value, and the rest is paid for growth projections.", livePriceBase, baseCurrency, noGrowthValueBase),
+                                        text = String.format(Locale.getDefault(), "Of the purchase price of $%.2f %s, $%.2f is backed by current business cash yield (FCF) zero-growth asset value, and the rest is paid for growth projections.", livePrice, tickerCurrency, noGrowthValue),
                                         fontSize = 11.sp,
                                         color = LightText.copy(alpha = 0.8f),
                                         lineHeight = 15.sp
@@ -1043,27 +1038,27 @@ fun CalculatorScreen(
                                         val fcfConv = if (snap.ttmNetIncome != 0.0) (fcfTotal / snap.ttmNetIncome) * 100.0 else 0.0
 
                                         // 1. Market cap
-                                        StatsRow("Market cap", String.format(Locale.getDefault(), "$%.2f B", (mcapVal * currencyMultiplier) / 1_000_000_000.0))
+                                        StatsRow("Market cap", String.format(Locale.getDefault(), "$%.2f B", mcapVal / 1_000_000_000.0))
                                         // 2. Shares outstanding
                                         StatsRow("Shares outstanding", String.format(Locale.getDefault(), "%.2f M", snap.sharesOutstanding / 1_000_000.0))
                                         // 3. TTM revenue
-                                        StatsRow("TTM revenue", String.format(Locale.getDefault(), "$%.2f M", (revTotal * currencyMultiplier) / 1_000_000.0))
+                                        StatsRow("TTM revenue", String.format(Locale.getDefault(), "$%.2f M", revTotal / 1_000_000.0))
                                         // 4. Net income
-                                        StatsRow("Net income", String.format(Locale.getDefault(), "$%.2f M", (snap.ttmNetIncome * currencyMultiplier) / 1_000_000.0))
+                                        StatsRow("Net income", String.format(Locale.getDefault(), "$%.2f M", snap.ttmNetIncome / 1_000_000.0))
                                         // 5. TTM free cash flow
-                                        StatsRow("TTM free cash flow", String.format(Locale.getDefault(), "$%.2f M", (fcfTotal * currencyMultiplier) / 1_000_000.0))
+                                        StatsRow("TTM free cash flow", String.format(Locale.getDefault(), "$%.2f M", fcfTotal / 1_000_000.0))
                                         // 6. FCF per share
-                                        StatsRow("FCF per share", String.format(Locale.getDefault(), "$%.2f %s", snap.fcfPerShare * currencyMultiplier, baseCurrency))
+                                        StatsRow("FCF per share", String.format(Locale.getDefault(), "$%.2f %s", snap.fcfPerShare, tickerCurrency))
                                         // 7. FCF yield
                                         StatsRow("FCF yield", String.format(Locale.getDefault(), "%.2f%%", fcfYieldVal))
                                         // 8. Historical FCF yield
                                         StatsRow("Historical FCF yield", String.format(Locale.getDefault(), "%.2f%%", snap.historicalFcfYield))
                                         // 9. Cash on hands
-                                        StatsRow("Cash on hands", String.format(Locale.getDefault(), "$%.2f M", (cashTotal * currencyMultiplier) / 1_000_000.0))
+                                        StatsRow("Cash on hands", String.format(Locale.getDefault(), "$%.2f M", cashTotal / 1_000_000.0))
                                         // 10. Long term debt
-                                        StatsRow("Long term debt", String.format(Locale.getDefault(), "$%.2f M", (debtTotal * currencyMultiplier) / 1_000_000.0))
+                                        StatsRow("Long term debt", String.format(Locale.getDefault(), "$%.2f M", debtTotal / 1_000_000.0))
                                         // 11. Net cash / share
-                                        StatsRow("Net cash / share", String.format(Locale.getDefault(), "$%.2f %s", snap.netCashPerShare * currencyMultiplier, baseCurrency))
+                                        StatsRow("Net cash / share", String.format(Locale.getDefault(), "$%.2f %s", snap.netCashPerShare, tickerCurrency))
                                         // 12. ROIC
                                         StatsRow("ROIC", String.format(Locale.getDefault(), "%.2f%%", snap.roicPercent))
                                         // 13. FCF margin
@@ -1075,21 +1070,21 @@ fun CalculatorScreen(
                                         val parsedSharesM = sharesInput.replace(',', '.').toDoubleOrNull() ?: (snap.sharesOutstanding / 1_000_000.0)
                                         val safeSharesTotal = if (parsedSharesM > 0.0) parsedSharesM * 1_000_000.0 else snap.sharesOutstanding.coerceAtLeast(1.0)
 
-                                        val livePriceUsd = snap.currentPrice
-                                        val liveMarketCapB = ((livePriceUsd * safeSharesTotal) / 1_000_000_000.0) * currencyMultiplier
+                                        val livePrice = snap.currentPrice
+                                        val liveMarketCapB = (livePrice * safeSharesTotal) / 1_000_000_000.0
 
                                         val parsedRevM = ttmRevenueInput.replace(',', '.').toDoubleOrNull() ?: (if (snap.ttmRevenue > 0.0) snap.ttmRevenue / 1_000_000.0 else (snap.revenuePerShare * safeSharesTotal) / 1_000_000.0)
                                         val parsedNetIncomeM = ttmNetIncomeInput.replace(',', '.').toDoubleOrNull() ?: (snap.ttmNetIncome / 1_000_000.0)
 
                                         val parsedFcfM = ttmFcfInput.replace(',', '.').toDoubleOrNull() ?: (snap.ttmFcf / 1_000_000.0)
-                                        val liveFcfPerShare = ((parsedFcfM * 1_000_000.0) / safeSharesTotal) * currencyMultiplier
+                                        val liveFcfPerShare = (parsedFcfM * 1_000_000.0) / safeSharesTotal
 
-                                        val rawLiveFcfPerShareUsd = (parsedFcfM * 1_000_000.0) / safeSharesTotal
-                                        val liveFcfYieldVal = if (livePriceUsd > 0.0) (rawLiveFcfPerShareUsd / livePriceUsd) * 100.0 else 0.0
+                                        val rawLiveFcfPerShare = (parsedFcfM * 1_000_000.0) / safeSharesTotal
+                                        val liveFcfYieldVal = if (livePrice > 0.0) (rawLiveFcfPerShare / livePrice) * 100.0 else 0.0
 
                                         val parsedCashM = cashOnHandInput.replace(',', '.').toDoubleOrNull() ?: (snap.cashOnHand / 1_000_000.0)
                                         val parsedDebtM = ltDebtInput.replace(',', '.').toDoubleOrNull() ?: (snap.ltDebt / 1_000_000.0)
-                                        val liveNetCashPerShare = (((parsedCashM - parsedDebtM) * 1_000_000.0) / safeSharesTotal) * currencyMultiplier
+                                        val liveNetCashPerShare = ((parsedCashM - parsedDebtM) * 1_000_000.0) / safeSharesTotal
 
                                         val liveFcfMargin = if (parsedRevM > 0.0) (parsedFcfM / parsedRevM) * 100.0 else 0.0
                                         val liveFcfConversion = if (parsedNetIncomeM != 0.0) (parsedFcfM / parsedNetIncomeM) * 100.0 else 0.0
@@ -1110,7 +1105,7 @@ fun CalculatorScreen(
                                         BaselineEditRow("TTM free cash flow", ttmFcfInput, { ttmFcfInput = it }, "\$M")
 
                                         // 6. FCF per share (Calculated)
-                                        CalculatedStatsRow("FCF per share", String.format(Locale.getDefault(), "$%.2f %s", liveFcfPerShare, baseCurrency), "Auto: TTM FCF / Shares")
+                                        CalculatedStatsRow("FCF per share", String.format(Locale.getDefault(), "$%.2f %s", liveFcfPerShare, tickerCurrency), "Auto: TTM FCF / Shares")
 
                                         // 7. FCF yield (Calculated)
                                         CalculatedStatsRow("FCF yield", String.format(Locale.getDefault(), "%.2f%%", liveFcfYieldVal), "Auto: FCF per Share / Price")
@@ -1125,7 +1120,7 @@ fun CalculatorScreen(
                                         BaselineEditRow("Long term debt", ltDebtInput, { ltDebtInput = it }, "\$M")
 
                                         // 11. Net cash / share (Calculated)
-                                        CalculatedStatsRow("Net cash / share", String.format(Locale.getDefault(), "$%.2f %s", liveNetCashPerShare, baseCurrency), "Auto: (Cash - Debt) / Shares")
+                                        CalculatedStatsRow("Net cash / share", String.format(Locale.getDefault(), "$%.2f %s", liveNetCashPerShare, tickerCurrency), "Auto: (Cash - Debt) / Shares")
 
                                         // 12. ROIC (Editable)
                                         BaselineEditRow("ROIC", roicInput, { roicInput = it }, "%")

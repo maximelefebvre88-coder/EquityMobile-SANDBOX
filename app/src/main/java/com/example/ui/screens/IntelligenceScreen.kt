@@ -65,8 +65,6 @@ fun IntelligenceScreen(
     val snapshot by viewModel.activeCalculatorSnapshot.collectAsStateWithLifecycle()
     val isSyncing by viewModel.tickerSyncing.collectAsStateWithLifecycle()
     val syncError by viewModel.syncError.collectAsStateWithLifecycle()
-    val currencyMultiplier by viewModel.currencyMultiplier.collectAsStateWithLifecycle()
-    val baseCurrency by viewModel.currencyFlow.collectAsStateWithLifecycle()
     val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
 
     val tickerItem = remember(watchlist, activeTicker) {

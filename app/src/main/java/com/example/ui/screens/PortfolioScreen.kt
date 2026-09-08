@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
 import com.example.domain.model.WatchlistTicker
+import com.example.domain.util.getTickerCurrency
+import com.example.domain.util.getFxMultiplier
 import com.example.ui.theme.*
 import com.example.viewmodel.FinanceViewModel
 import coil.compose.AsyncImage
@@ -94,9 +96,7 @@ fun PortfolioScreen(
     val tickerScores by viewModel.tickerScores.collectAsStateWithLifecycle()
     val allSnapshots by viewModel.allCalculatorSnapshots.collectAsStateWithLifecycle()
     val allTrades by viewModel.allTrades.collectAsStateWithLifecycle()
-    val currencyMultiplier by viewModel.currencyMultiplier.collectAsStateWithLifecycle()
     val baseCurrency by viewModel.currencyFlow.collectAsStateWithLifecycle()
-    val isSyncing by viewModel.tickerSyncing.collectAsStateWithLifecycle()
     val isSyncingAll by viewModel.isSyncingAll.collectAsStateWithLifecycle()
     val syncError by viewModel.syncError.collectAsStateWithLifecycle()
     val apiKey by viewModel.apiKeyFlow.collectAsStateWithLifecycle()
@@ -162,11 +162,15 @@ fun PortfolioScreen(
     val cashDeposits = remember(allTrades) {
         allTrades.filter { it.tradeType == "Deposit" || it.tradeType == "Withdrawal" }.sumOf { it.netCreditDebit }
     }
-    val netTradeFlows = remember(allTrades) {
-        allTrades.filter { it.tradeType != "Deposit" && it.tradeType != "Withdrawal" }.sumOf { it.netCreditDebit }
+    val netTradeFlows = remember(allTrades, baseCurrency) {
+        allTrades.filter { it.tradeType != "Deposit" && it.tradeType != "Withdrawal" }.sumOf {
+            val tickerCurr = getTickerCurrency(it.ticker)
+            val fx = getFxMultiplier(tickerCurr, baseCurrency)
+            it.netCreditDebit * fx
+        }
     }
     val totalCashBalance = cashDeposits + netTradeFlows
-    val isRefreshing = isSyncingAll || (isSyncing != null)
+    val isRefreshing = isSyncingAll
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -272,7 +276,7 @@ fun PortfolioScreen(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = formatCurrency(totalCashBalance * currencyMultiplier, baseCurrency),
+                                    text = formatCurrency(totalCashBalance, baseCurrency),
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White
@@ -350,19 +354,23 @@ fun PortfolioScreen(
     } else {
 
         // Compute aggregate metrics across all active tickers
-        val aggregatePremiums = remember(watchlist, allTrades) {
+        val aggregatePremiums = remember(watchlist, allTrades, baseCurrency) {
             watchlist.fold(0.0) { sum, ticker ->
+                val tickerCurr = getTickerCurrency(ticker.symbol)
+                val fx = getFxMultiplier(tickerCurr, baseCurrency)
                 val trades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
                 val tickerPrems = trades.filter {
                     it.tradeType == "Sell CSP" || it.tradeType == "Buy to Close" || it.tradeType == "Sell CC"
                 }.sumOf { it.netCreditDebit }
-                sum + tickerPrems
+                sum + (tickerPrems * fx)
             }
         }
 
-        val aggregateUnrealizedPnL = remember(watchlist, allTrades) {
+        val aggregateUnrealizedPnL = remember(watchlist, allTrades, baseCurrency) {
             val now = System.currentTimeMillis()
             watchlist.fold(0.0) { sum, ticker ->
+                val tickerCurr = getTickerCurrency(ticker.symbol)
+                val fx = getFxMultiplier(tickerCurr, baseCurrency)
                 val trades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
                 val assignedShares = trades.fold(0) { s, trade ->
                     when (trade.tradeType) {
@@ -442,16 +450,18 @@ fun PortfolioScreen(
                 val tickerPnL = if (assignedShares > 0) {
                     (ticker.livePrice - baseCostBasis) * assignedShares
                 } else 0.0
-                sum + tickerPnL
+                sum + (tickerPnL * fx)
             }
         }
 
         val aggregateTotalPnL = aggregatePremiums + aggregateUnrealizedPnL
 
-        val totalCspLocked = remember(watchlist, allTrades) {
+        val totalCspLocked = remember(watchlist, allTrades, baseCurrency) {
             val currentTime = System.currentTimeMillis()
             var cspLockSum = 0.0
             watchlist.forEach { ticker ->
+                val tickerCurr = getTickerCurrency(ticker.symbol)
+                val fx = getFxMultiplier(tickerCurr, baseCurrency)
                 val tickerTrades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
                 val activeCsps = tickerTrades.filter { 
                     it.tradeType == "Sell CSP" && 
@@ -467,15 +477,17 @@ fun PortfolioScreen(
                     val matchingClosures = closures.filter { it.strikePrice == csp.strikePrice && it.date >= csp.date }
                     val closedContracts = matchingClosures.sumOf { it.contracts }
                     val openContracts = (csp.contracts - closedContracts).coerceAtLeast(0)
-                    cspLockSum += openContracts * 100.0 * csp.strikePrice
+                    cspLockSum += (openContracts * 100.0 * csp.strikePrice) * fx
                 }
             }
             cspLockSum
         }
 
-        val totalStockMarketValue = remember(watchlist, allTrades) {
+        val totalStockMarketValue = remember(watchlist, allTrades, baseCurrency) {
             var mvalSum = 0.0
             watchlist.forEach { ticker ->
+                val tickerCurr = getTickerCurrency(ticker.symbol)
+                val fx = getFxMultiplier(tickerCurr, baseCurrency)
                 val tickerTrades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
                 val assignedShares = tickerTrades.fold(0) { sum, trade ->
                     when (trade.tradeType) {
@@ -488,7 +500,7 @@ fun PortfolioScreen(
                 }.coerceAtLeast(0)
                 
                 if (assignedShares > 0) {
-                    mvalSum += assignedShares * ticker.livePrice
+                    mvalSum += (assignedShares * ticker.livePrice) * fx
                 }
             }
             mvalSum
@@ -550,9 +562,8 @@ fun PortfolioScreen(
                                     letterSpacing = 1.sp
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
-                                 val formattedAggregateValue = aggregateTotalPnL * currencyMultiplier
                                 Text(
-                                    text = formatCurrency(formattedAggregateValue),
+                                    text = formatCurrency(aggregateTotalPnL),
                                     fontSize = 32.sp,
                                     fontWeight = FontWeight.Black,
                                     color = LightText,
@@ -560,10 +571,9 @@ fun PortfolioScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val aggregatePremsDisplay = aggregatePremiums * currencyMultiplier
-                                    val signPrems = if (aggregatePremsDisplay >= 0) "+" else ""
+                                    val signPrems = if (aggregatePremiums >= 0) "+" else ""
                                     Text(
-                                        text = "Premiums: $signPrems${formatCurrency(aggregatePremsDisplay)}",
+                                        text = "Premiums: $signPrems${formatCurrency(aggregatePremiums)}",
                                         fontSize = 12.sp,
                                         color = TealAccent,
                                         fontWeight = FontWeight.SemiBold
@@ -573,12 +583,11 @@ fun PortfolioScreen(
                                         color = GrayText,
                                         fontSize = 12.sp
                                     )
-                                    val aggregateUnrealizedDisplay = aggregateUnrealizedPnL * currencyMultiplier
-                                    val signUnrealized = if (aggregateUnrealizedDisplay >= 0) "+" else ""
+                                    val signUnrealized = if (aggregateUnrealizedPnL >= 0) "+" else ""
                                     Text(
-                                        text = "Unrealized: $signUnrealized${formatCurrency(aggregateUnrealizedDisplay)}",
+                                        text = "Unrealized: $signUnrealized${formatCurrency(aggregateUnrealizedPnL)}",
                                         fontSize = 12.sp,
-                                        color = if(aggregateUnrealizedDisplay >= 0) TealAccent else RedLoss,
+                                        color = if(aggregateUnrealizedPnL >= 0) TealAccent else RedLoss,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
@@ -621,7 +630,7 @@ fun PortfolioScreen(
                                     Text("TOTAL EQUITY", fontSize = 10.sp, color = GrayText, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = formatCurrency(totalEquity * currencyMultiplier),
+                                        text = formatCurrency(totalEquity),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -633,7 +642,7 @@ fun PortfolioScreen(
                                     Text("CASH", fontSize = 10.sp, color = GrayText, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = formatCurrency(totalCashBalance * currencyMultiplier),
+                                        text = formatCurrency(totalCashBalance),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -650,7 +659,7 @@ fun PortfolioScreen(
                                     Text("BUYING POWER", fontSize = 10.sp, color = GrayText, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = formatCurrency(buyingPower * currencyMultiplier),
+                                        text = formatCurrency(buyingPower),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -658,7 +667,7 @@ fun PortfolioScreen(
                                     if (totalCspLocked > 0.0) {
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "CSP Lock: " + formatCurrency(totalCspLocked * currencyMultiplier),
+                                            text = "CSP Lock: " + formatCurrency(totalCspLocked),
                                             fontSize = 9.sp,
                                             color = AmberWarning,
                                             fontWeight = FontWeight.Bold
@@ -672,7 +681,7 @@ fun PortfolioScreen(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = if (totalStockMarketValue > 0.0) {
-                                            formatCurrency(totalStockMarketValue * currencyMultiplier)
+                                            formatCurrency(totalStockMarketValue)
                                         } else "—",
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
@@ -1102,9 +1111,9 @@ fun PortfolioScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Column(horizontalAlignment = Alignment.End) {
-                                    val convertedPrice = stockLivePrice * currencyMultiplier
+                                    val tickerCurrency = getTickerCurrency(ticker.symbol)
                                     Text(
-                                        text = formatCurrency(convertedPrice, baseCurrency),
+                                        text = formatCurrency(stockLivePrice, tickerCurrency),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Black,
                                         color = Color.White
@@ -1177,7 +1186,7 @@ fun PortfolioScreen(
                                         maxLines = 1
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
-                                    val costDisplay = activeCostBasis * currencyMultiplier
+                                    val costDisplay = activeCostBasis
                                     Text(
                                         text = formatCurrency(costDisplay),
                                         fontSize = 11.5.sp,
@@ -1237,8 +1246,7 @@ fun PortfolioScreen(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = if (dcfVal > 0.0) {
-                                                val dcfDisplay = dcfVal * currencyMultiplier
-                                                formatCurrency(dcfDisplay)
+                                                formatCurrency(dcfVal)
                                             } else "N/A",
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.ExtraBold,
@@ -1280,8 +1288,7 @@ fun PortfolioScreen(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = if (marketFcfSentimentVal > 0.0) {
-                                                val fcfSentimentDisplay = marketFcfSentimentVal * currencyMultiplier
-                                                formatCurrency(fcfSentimentDisplay)
+                                                formatCurrency(marketFcfSentimentVal)
                                             } else "N/A",
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.ExtraBold,
@@ -1328,8 +1335,7 @@ fun PortfolioScreen(
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = if (hasTarget) {
-                                            val targetDisplay = targetVal!! * currencyMultiplier
-                                            formatCurrency(targetDisplay)
+                                            formatCurrency(targetVal!!)
                                         } else "--",
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.ExtraBold,
@@ -1436,7 +1442,7 @@ fun PortfolioScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Option premiums collected:", fontSize = 12.sp, color = GrayText)
-                                val premDisplay = premiumsCollected * currencyMultiplier
+                                val premDisplay = premiumsCollected
                                 Text(
                                     text = formatCurrency(premDisplay),
                                     fontSize = 12.sp,
@@ -1450,7 +1456,7 @@ fun PortfolioScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Unrealized stock P&L:", fontSize = 12.sp, color = GrayText)
-                                val pnlDisplay = unrealizedPnL * currencyMultiplier
+                                val pnlDisplay = unrealizedPnL
                                 Text(
                                     text = if (assignedShares > 0) {
                                         "${formatCurrency(pnlDisplay)} (${String.format(Locale.getDefault(), "%.1f%%", unrealizedPnLPct)})"
@@ -1481,7 +1487,7 @@ fun PortfolioScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text("Prorated Share of FCF (Ann.):", fontSize = 12.sp, color = GrayText)
-                                        val fcfDisplay = estimatedAnnualFcfValue * currencyMultiplier
+                                        val fcfDisplay = estimatedAnnualFcfValue
                                         Text(
                                             text = formatCurrency(fcfDisplay),
                                             fontSize = 12.sp,

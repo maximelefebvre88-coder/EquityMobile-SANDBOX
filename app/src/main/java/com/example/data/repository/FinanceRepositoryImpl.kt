@@ -49,6 +49,32 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
+    private val yahooOkHttpClient = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            val request = chain.request().newBuilder()
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "application/json")
+                .build()
+            chain.proceed(request)
+        }
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    private val yahooFinanceService: YahooFinanceService = Retrofit.Builder()
+        .baseUrl("https://query1.finance.yahoo.com/")
+        .client(yahooOkHttpClient)
+        .addConverterFactory(MoshiConverterFactory.create(moshi))
+        .build()
+        .create(YahooFinanceService::class.java)
+
+    private val yahooFinanceBackupService: YahooFinanceService = Retrofit.Builder()
+        .baseUrl("https://query2.finance.yahoo.com/")
+        .client(yahooOkHttpClient)
+        .addConverterFactory(MoshiConverterFactory.create(moshi))
+        .build()
+        .create(YahooFinanceService::class.java)
+
     private val geminiOkHttpClient = OkHttpClient.Builder()
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
@@ -71,6 +97,29 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
         .addConverterFactory(MoshiConverterFactory.create(moshi))
         .build()
         .create(GeminiApiService::class.java)
+
+    private suspend fun fetchLiveQuoteFromYahoo(symbol: String): Triple<Double, Double?, String?>? {
+        val sym = symbol.trim()
+        val services = listOf(yahooFinanceService, yahooFinanceBackupService)
+        for (service in services) {
+            try {
+                val res = service.getChart(sym)
+                val meta = res.chart?.result?.firstOrNull()?.meta
+                val price = meta?.regularMarketPrice ?: 0.0
+                if (price > 0.0) {
+                    val prevClose = meta?.previousClose ?: meta?.chartPreviousClose
+                    val changePct = if (prevClose != null && prevClose > 0.0) {
+                        ((price - prevClose) / prevClose) * 100.0
+                    } else null
+                    val compName = meta?.shortName ?: meta?.longName
+                    return Triple(price, changePct, compName)
+                }
+            } catch (e: Exception) {
+                // Try next endpoint
+            }
+        }
+        return null
+    }
 
     // Finnhub Request Rate-Limiting Throttler to strictly prevent 429 burst triggers on Free Tier (30 calls/min)
     private val finnhubThrottleMutex = kotlinx.coroutines.sync.Mutex()
@@ -357,10 +406,11 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
         if (apiKey.isEmpty()) {
             return@withContext null
         }
+        val tickerCurrency = com.example.domain.util.getTickerCurrency(symbol).ifEmpty { "USD" }
         val priceContextPrompt = if (priceContextVal > 0.0) {
-            "The real-time market price of '$symbol' is exactly $priceContextVal USD (from real-time quote feed). Base all downstream ratios and per-share calculations consistently on this live market price."
+            "The real-time market price of '$symbol' is exactly $priceContextVal $tickerCurrency (from real-time quote feed). Base all downstream ratios and per-share calculations consistently on this live market price."
         } else {
-            "Utilize the latest real-time stock price of '$symbol' on Yahoo Finance for consistent ratios."
+            "Utilize the latest real-time stock price of '$symbol' on Yahoo Finance in $tickerCurrency for consistent ratios."
         }
         val prompt = """
             You are a strict financial data extractor. You must ONLY extract corporate financial data from the Financial Statements tab on yahoofinance.com for ticker symbol '$symbol' (specifically: https://finance.yahoo.com/quote/$symbol/financials, /balance-sheet, and /cash-flow).
@@ -512,50 +562,55 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
             }
         }
 
-        val apiKey = getApiKey()
-        if (apiKey.isEmpty()) {
-            if (existing != null && existing.currentPrice > 0.0) {
-                return@withContext existing.toDomain()
-            }
-            val geminiKey = getGeminiApiKey()
-            if (geminiKey.isNotEmpty()) {
-                return@withContext forceGeminiSync(sym, force = force)
-            }
-            throw Exception("Finnhub API Key is missing in Settings")
-        }
-
         var livePrice = 0.0
         var changePercent: Double? = cachedTicker?.changePercent
         var companyName = sym
         var hitRateLimit = false
 
-        // Check if we already have a valid local cache of the company name to avoid redundant Finnhub pings
+        // Check if we already have a valid local cache of the company name to avoid redundant network lookups
         val hasValidCachedName = cachedTicker != null && cachedTicker.companyName.isNotEmpty() && cachedTicker.companyName != sym
         if (hasValidCachedName) {
             companyName = cachedTicker!!.companyName
         }
 
-        try {
-            throttleFinnhubCall()
-            val quote = apiService.getQuote(sym, apiKey)
-            livePrice = quote.price ?: 0.0
-            if (quote.percentChange != null) {
-                changePercent = quote.percentChange
-            } else if (quote.previousClose != null && quote.previousClose > 0.0 && livePrice > 0.0) {
-                changePercent = ((livePrice - quote.previousClose) / quote.previousClose) * 100.0
+        // Try Yahoo Finance quote first (vital for Canadian stocks like AW.TO and universally reliable for real-time prices)
+        val yahooQuote = fetchLiveQuoteFromYahoo(sym)
+        if (yahooQuote != null && yahooQuote.first > 0.0) {
+            livePrice = yahooQuote.first
+            if (yahooQuote.second != null) {
+                changePercent = yahooQuote.second
             }
-        } catch (e: Exception) {
-            if (e is retrofit2.HttpException && e.code() == 429) {
-                hitRateLimit = true
-                lastRestSyncMap[sym] = now
+            if (!yahooQuote.third.isNullOrEmpty() && !hasValidCachedName) {
+                companyName = yahooQuote.third!!
             }
         }
 
-        if (!hasValidCachedName && !hitRateLimit) {
+        val apiKey = getApiKey()
+        if (livePrice <= 0.0 && apiKey.isNotEmpty()) {
+            try {
+                throttleFinnhubCall()
+                val quote = apiService.getQuote(sym, apiKey)
+                livePrice = quote.price ?: 0.0
+                if (quote.percentChange != null) {
+                    changePercent = quote.percentChange
+                } else if (quote.previousClose != null && quote.previousClose > 0.0 && livePrice > 0.0) {
+                    changePercent = ((livePrice - quote.previousClose) / quote.previousClose) * 100.0
+                }
+            } catch (e: Exception) {
+                if (e is retrofit2.HttpException && e.code() == 429) {
+                    hitRateLimit = true
+                    lastRestSyncMap[sym] = now
+                }
+            }
+        }
+
+        if (!hasValidCachedName && !hitRateLimit && apiKey.isNotEmpty() && companyName == sym) {
             try {
                 throttleFinnhubCall()
                 val profile = apiService.getProfile(sym, apiKey)
-                companyName = profile.companyName ?: sym
+                if (!profile.companyName.isNullOrEmpty()) {
+                    companyName = profile.companyName
+                }
             } catch (e: Exception) {
                 if (e is retrofit2.HttpException && e.code() == 429) {
                     hitRateLimit = true
@@ -668,19 +723,32 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
         val existingPrice = existing?.currentPrice ?: 0.0
         val cachedTicker = tickerDao.getTickerBySymbol(sym)
         
-        // Real-time minute-by-minute pricing from Finnhub
+        // Real-time minute-by-minute pricing from Yahoo Finance / Finnhub
         val apiKey = getApiKey()
-        var finnhubPrice = 0.0
+        var liveQuotePrice = 0.0
         var changePercent: Double? = cachedTicker?.changePercent
-        if (apiKey.isNotEmpty()) {
+        var yahooName: String? = null
+
+        val yahooQuote = fetchLiveQuoteFromYahoo(sym)
+        if (yahooQuote != null && yahooQuote.first > 0.0) {
+            liveQuotePrice = yahooQuote.first
+            if (yahooQuote.second != null) {
+                changePercent = yahooQuote.second
+            }
+            if (!yahooQuote.third.isNullOrEmpty()) {
+                yahooName = yahooQuote.third
+            }
+        }
+
+        if (liveQuotePrice <= 0.0 && apiKey.isNotEmpty()) {
             try {
                 throttleFinnhubCall()
                 val quote = apiService.getQuote(sym, apiKey)
-                finnhubPrice = quote.price ?: 0.0
+                liveQuotePrice = quote.price ?: 0.0
                 if (quote.percentChange != null) {
                     changePercent = quote.percentChange
-                } else if (quote.previousClose != null && quote.previousClose > 0.0 && finnhubPrice > 0.0) {
-                    changePercent = ((finnhubPrice - quote.previousClose) / quote.previousClose) * 100.0
+                } else if (quote.previousClose != null && quote.previousClose > 0.0 && liveQuotePrice > 0.0) {
+                    changePercent = ((liveQuotePrice - quote.previousClose) / quote.previousClose) * 100.0
                 }
             } catch (e: Exception) {
                 if (e is retrofit2.HttpException && e.code() == 429) {
@@ -688,19 +756,24 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
                 }
             }
         }
-        val priceForContext = if (finnhubPrice > 0.0) finnhubPrice else existingPrice
+        val priceForContext = if (liveQuotePrice > 0.0) liveQuotePrice else existingPrice
 
         // Fetch strictly using Yahoo Finance Financial Statements as source of truth
         val geminiBaseline = fetchBaselineWithGemini(sym, priceContextVal = priceForContext) 
             ?: throw Exception("Failed to fetch verified financial statement data from Yahoo Finance via Gemini Grounding. Please check your internet connection or API key.")
 
         val livePrice = when {
-            finnhubPrice > 0.0 -> finnhubPrice
+            liveQuotePrice > 0.0 -> liveQuotePrice
             existingPrice > 0.0 -> existingPrice
             else -> geminiBaseline.currentPrice ?: 0.0
         }
 
-        val companyName = geminiBaseline.companyName ?: sym
+        val companyName = when {
+            !geminiBaseline.companyName.isNullOrEmpty() && geminiBaseline.companyName != sym -> geminiBaseline.companyName
+            !yahooName.isNullOrEmpty() -> yahooName
+            cachedTicker != null && cachedTicker.companyName.isNotEmpty() && cachedTicker.companyName != sym -> cachedTicker.companyName
+            else -> sym
+        }
         
         // Sanitize Market Cap from Gemini (handle Billions/Millions scaling errors)
         var mcap = geminiBaseline.marketCap ?: 0.0

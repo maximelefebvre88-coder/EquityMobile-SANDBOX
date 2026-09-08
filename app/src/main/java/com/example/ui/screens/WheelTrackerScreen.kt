@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import com.example.domain.model.TradeEntity
+import com.example.domain.util.getTickerCurrency
 import com.example.ui.theme.*
 import com.example.viewmodel.FinanceViewModel
 import coil.compose.AsyncImage
@@ -51,8 +52,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
     val activeTicker by viewModel.selectedCalculatorTicker.collectAsStateWithLifecycle()
     val snapshot by viewModel.activeCalculatorSnapshot.collectAsStateWithLifecycle()
     val isSyncing by viewModel.tickerSyncing.collectAsStateWithLifecycle()
-    val currencyMultiplier by viewModel.currencyMultiplier.collectAsStateWithLifecycle()
-    val baseCurrency by viewModel.currencyFlow.collectAsStateWithLifecycle()
+    val tickerCurrency = getTickerCurrency(activeTicker)
 
     // Ensure we select a default ticker if none is active
     LaunchedEffect(watchlist) {
@@ -452,9 +452,8 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                                     ) {
                                         Column {
                                             Text("STOCK PRICE", fontSize = 8.sp, color = GrayText, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-                                            val convertedPrice = currentLivePrice * currencyMultiplier
                                             Text(
-                                                text = String.format(Locale.getDefault(), "$%.2f", convertedPrice),
+                                                text = String.format(Locale.getDefault(), "$%.2f %s", currentLivePrice, tickerCurrency),
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Black,
                                                 color = Color.White
@@ -515,7 +514,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                             )
                             SummaryCard(
                                 title = "Total Premium Collected",
-                                value = String.format(Locale.getDefault(), "$%.2f", totalPremiumCollected * currencyMultiplier),
+                                value = String.format(Locale.getDefault(), "$%.2f", totalPremiumCollected),
                                 desc = "Net options income",
                                 modifier = Modifier.weight(1f),
                                 contentColor = EmeraldGreen
@@ -531,14 +530,14 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                             )
                             SummaryCard(
                                 title = "Effective Cost Basis",
-                                value = String.format(Locale.getDefault(), "$%.2f", effectiveCostBasis * currencyMultiplier),
+                                value = String.format(Locale.getDefault(), "$%.2f", effectiveCostBasis),
                                 desc = "Strike - Net premiums",
                                 modifier = Modifier.weight(1f)
                             )
                         }
                         SummaryCard(
                             title = "Total P&L (Unrealized Math Included)",
-                            value = String.format(Locale.getDefault(), "$%.2f %s", totalPnL * currencyMultiplier, baseCurrency),
+                            value = String.format(Locale.getDefault(), "$%.2f %s", totalPnL, tickerCurrency),
                             desc = "(Price - Cost basis) * shares + options premiums",
                             modifier = Modifier.fillMaxWidth(),
                             contentColor = if (totalPnL >= 0) EmeraldGreen else RedLoss
@@ -1245,8 +1244,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                     items(tickerTrades) { trade ->
                         TradeRow(
                             trade = trade,
-                            currencyMultiplier = currencyMultiplier,
-                            baseCurrency = baseCurrency,
+                            tickerCurrency = tickerCurrency,
                             onDelete = {
                                 tradeToDelete = trade
                             },
@@ -1283,7 +1281,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
             val formattedDate = sdf.format(Date(targetTradeToDelete.date))
             val isShareTrade = targetTradeToDelete.tradeType == "Buying shares" || targetTradeToDelete.tradeType == "Selling shares"
             val qtyDesc = if (isShareTrade) "${targetTradeToDelete.contracts} shares" else "${targetTradeToDelete.contracts} contracts"
-            val priceFormatted = String.format(Locale.getDefault(), "$%.2f", targetTradeToDelete.strikePrice * currencyMultiplier)
+            val priceFormatted = String.format(Locale.getDefault(), "$%.2f", targetTradeToDelete.strikePrice)
 
             AlertDialog(
                 onDismissRequest = { tradeToDelete = null },
@@ -1375,8 +1373,7 @@ fun SummaryCard(
 @Composable
 fun TradeRow(
     trade: TradeEntity,
-    currencyMultiplier: Double,
-    baseCurrency: String,
+    tickerCurrency: String,
     onDelete: () -> Unit,
     onEdit: () -> Unit
 ) {
@@ -1481,9 +1478,9 @@ fun TradeRow(
                     Text("Details", fontSize = 10.sp, color = GrayText)
                     val isShareTrade = trade.tradeType == "Buying shares" || trade.tradeType == "Selling shares"
                     val detailText = if (isShareTrade) {
-                        "${trade.contracts} shares @ ${String.format(Locale.getDefault(), "$%.2f", trade.strikePrice * currencyMultiplier)}"
+                        "${trade.contracts} shares @ ${String.format(Locale.getDefault(), "$%.2f", trade.strikePrice)}"
                     } else {
-                        "${trade.contracts} contracts @ ${String.format(Locale.getDefault(), "$%.2f", trade.strikePrice * currencyMultiplier)} strike"
+                        "${trade.contracts} contracts @ ${String.format(Locale.getDefault(), "$%.2f", trade.strikePrice)} strike"
                     }
                     Text(
                         text = detailText,
@@ -1495,7 +1492,7 @@ fun TradeRow(
                         Text("FCF Yield: ${String.format(Locale.getDefault(), "%.2f%%", trade.fcfYield)}", fontSize = 10.sp, color = TealAccent, fontWeight = FontWeight.Bold)
                     }
                     if (trade.isClosed && trade.closeDate != null) {
-                        val closePremiumFormatted = String.format(Locale.getDefault(), "$%.2f", trade.closePremium * currencyMultiplier)
+                        val closePremiumFormatted = String.format(Locale.getDefault(), "$%.2f", trade.closePremium)
                         Text("Closed early on ${sdf.format(Date(trade.closeDate))} @ $closePremiumFormatted", fontSize = 10.sp, color = RedLoss, fontWeight = FontWeight.Bold)
                     } else if (trade.expiryDate != null) {
                         Text("Expires: $expiryStr", fontSize = 10.sp, color = GrayText)
@@ -1513,7 +1510,7 @@ fun TradeRow(
 
                 Column(horizontalAlignment = Alignment.End) {
                     Text("Net Cashflow", fontSize = 10.sp, color = GrayText)
-                    val creditBase = trade.netCreditDebit * currencyMultiplier
+                    val creditBase = trade.netCreditDebit
                     Text(
                         text = String.format(Locale.getDefault(), "%s$%.2f", if (creditBase >= 0) "+" else "", creditBase),
                         fontSize = 14.sp,

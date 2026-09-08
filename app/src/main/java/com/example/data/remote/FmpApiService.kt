@@ -104,6 +104,39 @@ interface GeminiApiService {
     ): GeminiResponse
 }
 
+@JsonClass(generateAdapter = true)
+data class YahooChartMeta(
+    val currency: String? = null,
+    val symbol: String? = null,
+    val regularMarketPrice: Double? = null,
+    val previousClose: Double? = null,
+    val chartPreviousClose: Double? = null,
+    val shortName: String? = null,
+    val longName: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class YahooChartResult(
+    val meta: YahooChartMeta? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class YahooChartContainer(
+    val result: List<YahooChartResult>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class YahooChartResponse(
+    val chart: YahooChartContainer? = null
+)
+
+interface YahooFinanceService {
+    @GET("v8/finance/chart/{symbol}?interval=1d&range=1d")
+    suspend fun getChart(
+        @Path("symbol") symbol: String
+    ): YahooChartResponse
+}
+
 interface FmpApiService {
     @GET("quote")
     suspend fun getQuote(
