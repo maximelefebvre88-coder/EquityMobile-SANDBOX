@@ -100,7 +100,8 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
         var closeDateStr by remember { mutableStateOf("") }
         var manualOutcomeInput by remember { mutableStateOf("") }
 
-        val currentLivePrice = snapshot?.currentPrice ?: 0.0
+        val activeTickerObj = watchlist.find { it.symbol.equals(activeTicker, ignoreCase = true) }
+        val currentLivePrice = if ((snapshot?.currentPrice ?: 0.0) > 0.0) snapshot!!.currentPrice else (activeTickerObj?.livePrice ?: 0.0)
 
         LaunchedEffect(tradeType, strikeInput, snapshot) {
             val isShareTarget = tradeType == "Buying shares" || tradeType == "Selling shares" || tradeType == "Assignment" || tradeType == "Called Away"
@@ -152,39 +153,33 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                     "Buying shares" -> shares += it.contracts
                     "Selling shares" -> shares -= it.contracts
                     "Sell CSP" -> {
-                        val isClosed = it.isClosed
-                        if (!isClosed) {
-                            when (it.manualOutcome) {
-                                "ASSIGNED" -> {
+                        when (it.manualOutcome) {
+                            "ASSIGNED" -> {
+                                shares += it.contracts * 100
+                            }
+                            "EXPIRED_WORTHLESS" -> {
+                                // do nothing
+                            }
+                            else -> {
+                                val isExpired = it.expiryDate != null && it.expiryDate <= now
+                                if (!it.isClosed && isExpired && currentLivePrice > 0.0 && currentLivePrice < it.strikePrice) {
                                     shares += it.contracts * 100
-                                }
-                                "EXPIRED_WORTHLESS" -> {
-                                    // do nothing
-                                }
-                                else -> {
-                                    val isExpired = it.expiryDate != null && it.expiryDate <= now
-                                    if (isExpired && currentLivePrice > 0.0 && currentLivePrice < it.strikePrice) {
-                                        shares += it.contracts * 100
-                                    }
                                 }
                             }
                         }
                     }
                     "Sell CC" -> {
-                        val isClosed = it.isClosed
-                        if (!isClosed) {
-                            when (it.manualOutcome) {
-                                "CALLED_AWAY" -> {
+                        when (it.manualOutcome) {
+                            "CALLED_AWAY" -> {
+                                shares -= it.contracts * 100
+                            }
+                            "EXPIRED_WORTHLESS" -> {
+                                // do nothing
+                            }
+                            else -> {
+                                val isExpired = it.expiryDate != null && it.expiryDate <= now
+                                if (!it.isClosed && isExpired && currentLivePrice > 0.0 && currentLivePrice > it.strikePrice) {
                                     shares -= it.contracts * 100
-                                }
-                                "EXPIRED_WORTHLESS" -> {
-                                    // do nothing
-                                }
-                                else -> {
-                                    val isExpired = it.expiryDate != null && it.expiryDate <= now
-                                    if (isExpired && currentLivePrice > 0.0 && currentLivePrice > it.strikePrice) {
-                                        shares -= it.contracts * 100
-                                    }
                                 }
                             }
                         }
@@ -229,22 +224,19 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                         totalBuyCost += it.strikePrice * it.contracts
                     }
                     "Sell CSP" -> {
-                        val isClosed = it.isClosed
-                        if (!isClosed) {
-                            when (it.manualOutcome) {
-                                "ASSIGNED" -> {
+                        when (it.manualOutcome) {
+                            "ASSIGNED" -> {
+                                totalBuyShares += it.contracts * 100
+                                totalBuyCost += it.strikePrice * 100.0 * it.contracts
+                            }
+                            "EXPIRED_WORTHLESS" -> {
+                                // do nothing
+                            }
+                            else -> {
+                                val isExpired = it.expiryDate != null && it.expiryDate <= now
+                                if (!it.isClosed && isExpired && currentLivePrice > 0.0 && currentLivePrice < it.strikePrice) {
                                     totalBuyShares += it.contracts * 100
                                     totalBuyCost += it.strikePrice * 100.0 * it.contracts
-                                }
-                                "EXPIRED_WORTHLESS" -> {
-                                    // do nothing
-                                }
-                                else -> {
-                                    val isExpired = it.expiryDate != null && it.expiryDate <= now
-                                    if (isExpired && currentLivePrice > 0.0 && currentLivePrice < it.strikePrice) {
-                                        totalBuyShares += it.contracts * 100
-                                        totalBuyCost += it.strikePrice * 100.0 * it.contracts
-                                    }
                                 }
                             }
                         }
@@ -371,7 +363,6 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
         }
 
         // 5. Effective Cost Basis (Assignment price - total net premiums collected) / shares
-        val activeTickerObj = watchlist.find { it.symbol.equals(activeTicker, ignoreCase = true) }
         val manuallyEnteredCostBasis = activeTickerObj?.manuallyEnteredCostBasis
         val effectiveCostBasis = remember(totalSharesHeld, assignmentCost, totalPremiumCollected, currentLivePrice, tickerTrades, manuallyEnteredCostBasis) {
             viewModel.calculateEffectiveCostBasis(

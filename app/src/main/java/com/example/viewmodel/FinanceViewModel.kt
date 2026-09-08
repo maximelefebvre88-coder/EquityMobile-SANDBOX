@@ -131,39 +131,33 @@ class FinanceViewModel(
                             "Buying shares" -> shares += it.contracts
                             "Selling shares" -> shares -= it.contracts
                             "Sell CSP" -> {
-                                val isClosed = it.isClosed
-                                if (!isClosed) {
-                                    when (it.manualOutcome) {
-                                        "ASSIGNED" -> {
+                                when (it.manualOutcome) {
+                                    "ASSIGNED" -> {
+                                        shares += it.contracts * 100
+                                    }
+                                    "EXPIRED_WORTHLESS" -> {
+                                        // do nothing
+                                    }
+                                    else -> {
+                                        val isExpired = it.expiryDate != null && it.expiryDate <= now
+                                        if (!it.isClosed && isExpired && livePrice > 0.0 && livePrice < it.strikePrice) {
                                             shares += it.contracts * 100
-                                        }
-                                        "EXPIRED_WORTHLESS" -> {
-                                            // do nothing
-                                        }
-                                        else -> {
-                                            val isExpired = it.expiryDate != null && it.expiryDate <= now
-                                            if (isExpired && livePrice > 0.0 && livePrice < it.strikePrice) {
-                                                shares += it.contracts * 100
-                                            }
                                         }
                                     }
                                 }
                             }
                             "Sell CC" -> {
-                                val isClosed = it.isClosed
-                                if (!isClosed) {
-                                    when (it.manualOutcome) {
-                                        "CALLED_AWAY" -> {
+                                when (it.manualOutcome) {
+                                    "CALLED_AWAY" -> {
+                                        shares -= it.contracts * 100
+                                    }
+                                    "EXPIRED_WORTHLESS" -> {
+                                        // do nothing
+                                    }
+                                    else -> {
+                                        val isExpired = it.expiryDate != null && it.expiryDate <= now
+                                        if (!it.isClosed && isExpired && livePrice > 0.0 && livePrice > it.strikePrice) {
                                             shares -= it.contracts * 100
-                                        }
-                                        "EXPIRED_WORTHLESS" -> {
-                                            // do nothing
-                                        }
-                                        else -> {
-                                            val isExpired = it.expiryDate != null && it.expiryDate <= now
-                                            if (isExpired && livePrice > 0.0 && livePrice > it.strikePrice) {
-                                                shares -= it.contracts * 100
-                                            }
                                         }
                                     }
                                 }

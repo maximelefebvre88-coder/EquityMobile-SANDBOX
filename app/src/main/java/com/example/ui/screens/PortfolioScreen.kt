@@ -361,6 +361,7 @@ fun PortfolioScreen(
         }
 
         val aggregateUnrealizedPnL = remember(watchlist, allTrades) {
+            val now = System.currentTimeMillis()
             watchlist.fold(0.0) { sum, ticker ->
                 val trades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
                 val assignedShares = trades.fold(0) { s, trade ->
@@ -369,6 +370,30 @@ fun PortfolioScreen(
                         "Called Away" -> s - (trade.contracts * 100)
                         "Buying shares" -> s + trade.contracts
                         "Selling shares" -> s - trade.contracts
+                        "Sell CSP" -> {
+                            when (trade.manualOutcome) {
+                                "ASSIGNED" -> s + (trade.contracts * 100)
+                                "EXPIRED_WORTHLESS" -> s
+                                else -> {
+                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
+                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < trade.strikePrice) {
+                                        s + (trade.contracts * 100)
+                                    } else s
+                                }
+                            }
+                        }
+                        "Sell CC" -> {
+                            when (trade.manualOutcome) {
+                                "CALLED_AWAY" -> s - (trade.contracts * 100)
+                                "EXPIRED_WORTHLESS" -> s
+                                else -> {
+                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
+                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice > trade.strikePrice) {
+                                        s - (trade.contracts * 100)
+                                    } else s
+                                }
+                            }
+                        }
                         else -> s
                     }
                 }.coerceAtLeast(0)
@@ -377,6 +402,18 @@ fun PortfolioScreen(
                     when (trade.tradeType) {
                         "Assignment" -> s + (trade.contracts * 100)
                         "Buying shares" -> s + trade.contracts
+                        "Sell CSP" -> {
+                            when (trade.manualOutcome) {
+                                "ASSIGNED" -> s + (trade.contracts * 100)
+                                "EXPIRED_WORTHLESS" -> s
+                                else -> {
+                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
+                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < trade.strikePrice) {
+                                        s + (trade.contracts * 100)
+                                    } else s
+                                }
+                            }
+                        }
                         else -> s
                     }
                 }
@@ -384,20 +421,26 @@ fun PortfolioScreen(
                     when (trade.tradeType) {
                         "Assignment" -> trade.strikePrice * 100.0 * trade.contracts
                         "Buying shares" -> trade.strikePrice * trade.contracts
+                        "Sell CSP" -> {
+                            when (trade.manualOutcome) {
+                                "ASSIGNED" -> trade.strikePrice * 100.0 * trade.contracts
+                                "EXPIRED_WORTHLESS" -> 0.0
+                                else -> {
+                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
+                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < trade.strikePrice) {
+                                        trade.strikePrice * 100.0 * trade.contracts
+                                    } else 0.0
+                                }
+                            }
+                        }
                         else -> 0.0
                     }
                 }
                 val avgBuyPrice = if (totalBuyShares > 0) totalBuyCost / totalBuyShares else 0.0
-                val assignmentCosts = avgBuyPrice * assignedShares
+                val baseCostBasis = ticker.manuallyEnteredCostBasis ?: avgBuyPrice
 
-                val activeCostBasis = viewModel.calculateEffectiveCostBasis(
-                    symbol = ticker.symbol,
-                    livePrice = ticker.livePrice,
-                    manuallyEnteredCostBasis = ticker.manuallyEnteredCostBasis,
-                    trades = trades
-                )
                 val tickerPnL = if (assignedShares > 0) {
-                    (ticker.livePrice - activeCostBasis) * assignedShares
+                    (ticker.livePrice - baseCostBasis) * assignedShares
                 } else 0.0
                 sum + tickerPnL
             }
@@ -660,6 +703,7 @@ fun PortfolioScreen(
 
                 // Filter trades logged for this specific ticker
                 val tickerTrades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
+                val now = System.currentTimeMillis()
 
                 // Fetch total assigned shares
                 val assignedShares = tickerTrades.fold(0) { sum, trade ->
@@ -668,6 +712,30 @@ fun PortfolioScreen(
                         "Called Away" -> sum - (trade.contracts * 100)
                         "Buying shares" -> sum + trade.contracts
                         "Selling shares" -> sum - trade.contracts
+                        "Sell CSP" -> {
+                            when (trade.manualOutcome) {
+                                "ASSIGNED" -> sum + (trade.contracts * 100)
+                                "EXPIRED_WORTHLESS" -> sum
+                                else -> {
+                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
+                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < trade.strikePrice) {
+                                        sum + (trade.contracts * 100)
+                                    } else sum
+                                }
+                            }
+                        }
+                        "Sell CC" -> {
+                            when (trade.manualOutcome) {
+                                "CALLED_AWAY" -> sum - (trade.contracts * 100)
+                                "EXPIRED_WORTHLESS" -> sum
+                                else -> {
+                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
+                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice > trade.strikePrice) {
+                                        sum - (trade.contracts * 100)
+                                    } else sum
+                                }
+                            }
+                        }
                         else -> sum
                     }
                 }.coerceAtLeast(0)
@@ -682,6 +750,18 @@ fun PortfolioScreen(
                     when (it.tradeType) {
                         "Assignment" -> sum + (it.contracts * 100)
                         "Buying shares" -> sum + it.contracts
+                        "Sell CSP" -> {
+                            when (it.manualOutcome) {
+                                "ASSIGNED" -> sum + (it.contracts * 100)
+                                "EXPIRED_WORTHLESS" -> sum
+                                else -> {
+                                    val isExpired = it.expiryDate != null && it.expiryDate <= now
+                                    if (!it.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < it.strikePrice) {
+                                        sum + (it.contracts * 100)
+                                    } else sum
+                                }
+                            }
+                        }
                         else -> sum
                     }
                 }
@@ -689,6 +769,18 @@ fun PortfolioScreen(
                     when (it.tradeType) {
                         "Assignment" -> it.strikePrice * 100.0 * it.contracts
                         "Buying shares" -> it.strikePrice * it.contracts
+                        "Sell CSP" -> {
+                            when (it.manualOutcome) {
+                                "ASSIGNED" -> it.strikePrice * 100.0 * it.contracts
+                                "EXPIRED_WORTHLESS" -> 0.0
+                                else -> {
+                                    val isExpired = it.expiryDate != null && it.expiryDate <= now
+                                    if (!it.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < it.strikePrice) {
+                                        it.strikePrice * 100.0 * it.contracts
+                                    } else 0.0
+                                }
+                            }
+                        }
                         else -> 0.0
                     }
                 }
@@ -757,12 +849,13 @@ fun PortfolioScreen(
 
                 // Unrealized P&L
                 val stockLivePrice = if (ticker.livePrice > 0.0) ticker.livePrice else (cachedSnapshotPrice ?: 0.0)
+                val baseCostBasis = ticker.manuallyEnteredCostBasis ?: avgBuyPrice
                 val unrealizedPnL = if (assignedShares > 0) {
-                    (stockLivePrice - activeCostBasis) * assignedShares
+                    (stockLivePrice - baseCostBasis) * assignedShares
                 } else 0.0
 
-                val unrealizedPnLPct = if (activeCostBasis > 0.0) {
-                    ((stockLivePrice - activeCostBasis) / activeCostBasis) * 100.0
+                val unrealizedPnLPct = if (baseCostBasis > 0.0) {
+                    ((stockLivePrice - baseCostBasis) / baseCostBasis) * 100.0
                 } else 0.0
 
                 // Weighted FCF Yield of buys:

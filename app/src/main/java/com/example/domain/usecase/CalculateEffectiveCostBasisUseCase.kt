@@ -25,39 +25,33 @@ class CalculateEffectiveCostBasisUseCase {
                 "Buying shares" -> totalSharesHeld += it.contracts
                 "Selling shares" -> totalSharesHeld -= it.contracts
                 "Sell CSP" -> {
-                    val isClosed = it.isClosed
-                    if (!isClosed) {
-                        when (it.manualOutcome) {
-                            "ASSIGNED" -> {
+                    when (it.manualOutcome) {
+                        "ASSIGNED" -> {
+                            totalSharesHeld += it.contracts * 100
+                        }
+                        "EXPIRED_WORTHLESS" -> {
+                            // do nothing
+                        }
+                        else -> {
+                            val isExpired = it.expiryDate != null && it.expiryDate <= now
+                            if (!it.isClosed && isExpired && livePrice > 0.0 && livePrice < it.strikePrice) {
                                 totalSharesHeld += it.contracts * 100
-                            }
-                            "EXPIRED_WORTHLESS" -> {
-                                // do nothing
-                            }
-                            else -> {
-                                val isExpired = it.expiryDate != null && it.expiryDate <= now
-                                if (isExpired && livePrice > 0.0 && livePrice < it.strikePrice) {
-                                    totalSharesHeld += it.contracts * 100
-                                }
                             }
                         }
                     }
                 }
                 "Sell CC" -> {
-                    val isClosed = it.isClosed
-                    if (!isClosed) {
-                        when (it.manualOutcome) {
-                            "CALLED_AWAY" -> {
+                    when (it.manualOutcome) {
+                        "CALLED_AWAY" -> {
+                            totalSharesHeld -= it.contracts * 100
+                        }
+                        "EXPIRED_WORTHLESS" -> {
+                            // do nothing
+                        }
+                        else -> {
+                            val isExpired = it.expiryDate != null && it.expiryDate <= now
+                            if (!it.isClosed && isExpired && livePrice > 0.0 && livePrice > it.strikePrice) {
                                 totalSharesHeld -= it.contracts * 100
-                            }
-                            "EXPIRED_WORTHLESS" -> {
-                                // do nothing
-                            }
-                            else -> {
-                                val isExpired = it.expiryDate != null && it.expiryDate <= now
-                                if (isExpired && livePrice > 0.0 && livePrice > it.strikePrice) {
-                                    totalSharesHeld -= it.contracts * 100
-                                }
                             }
                         }
                     }
@@ -85,22 +79,19 @@ class CalculateEffectiveCostBasisUseCase {
                     totalBuyCost += it.strikePrice * it.contracts
                 }
                 "Sell CSP" -> {
-                    val isClosed = it.isClosed
-                    if (!isClosed) {
-                        when (it.manualOutcome) {
-                            "ASSIGNED" -> {
+                    when (it.manualOutcome) {
+                        "ASSIGNED" -> {
+                            totalBuyShares += it.contracts * 100
+                            totalBuyCost += it.strikePrice * 100.0 * it.contracts
+                        }
+                        "EXPIRED_WORTHLESS" -> {
+                            // do nothing
+                        }
+                        else -> {
+                            val isExpired = it.expiryDate != null && it.expiryDate <= now
+                            if (!it.isClosed && isExpired && livePrice > 0.0 && livePrice < it.strikePrice) {
                                 totalBuyShares += it.contracts * 100
                                 totalBuyCost += it.strikePrice * 100.0 * it.contracts
-                            }
-                            "EXPIRED_WORTHLESS" -> {
-                                // do nothing
-                            }
-                            else -> {
-                                val isExpired = it.expiryDate != null && it.expiryDate <= now
-                                if (isExpired && livePrice > 0.0 && livePrice < it.strikePrice) {
-                                    totalBuyShares += it.contracts * 100
-                                    totalBuyCost += it.strikePrice * 100.0 * it.contracts
-                                }
                             }
                         }
                     }
@@ -112,11 +103,18 @@ class CalculateEffectiveCostBasisUseCase {
 
         // 4. Determine if there is an active CSP
         val activeCSPs = tickerTrades.filter {
-            it.tradeType == "Sell CSP" && !it.isClosed && (it.expiryDate == null || it.expiryDate > now)
+            it.tradeType == "Sell CSP" &&
+            !it.isClosed &&
+            it.manualOutcome != "EXPIRED_WORTHLESS" &&
+            it.manualOutcome != "ASSIGNED" &&
+            (it.expiryDate == null || it.expiryDate > now)
         }
         val hasActiveCSP = activeCSPs.isNotEmpty()
 
         val basePrice = when {
+            totalSharesHeld > 0 -> {
+                assignmentCost / totalSharesHeld
+            }
             hasActiveCSP -> {
                 // Calculate average strike price of active CSPs weighted by contracts
                 val totalContracts = activeCSPs.sumOf { it.contracts }
@@ -126,20 +124,17 @@ class CalculateEffectiveCostBasisUseCase {
                     activeCSPs.first().strikePrice
                 }
             }
-            totalSharesHeld > 0 -> {
-                assignmentCost / totalSharesHeld
-            }
             else -> {
                 livePrice
             }
         }
 
         val divisor = when {
-            hasActiveCSP -> {
-                activeCSPs.sumOf { it.contracts } * 100.0
-            }
             totalSharesHeld > 0 -> {
                 totalSharesHeld.toDouble()
+            }
+            hasActiveCSP -> {
+                activeCSPs.sumOf { it.contracts } * 100.0
             }
             else -> {
                 val lastOptionTrade = tickerTrades.lastOrNull {
