@@ -24,9 +24,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -66,7 +69,12 @@ private val CURRENCY_DECIMAL_FORMAT by lazy {
     java.text.DecimalFormat("#,##0.00", symbols)
 }
 
-private fun formatCurrency(value: Double, currency: String = ""): String {
+private const val MASKED_AMOUNT = "••••"
+
+private fun formatCurrency(value: Double, currency: String = "", isHidden: Boolean = false): String {
+    if (isHidden) {
+        return MASKED_AMOUNT
+    }
     val isNegative = value < 0
     val absVal = kotlin.math.abs(value)
     val formatted = synchronized(CURRENCY_DECIMAL_FORMAT) {
@@ -117,6 +125,7 @@ fun PortfolioScreen(
         viewModel.syncAllWatchlistTickers(force = false)
     }
 
+    var isAmountsHidden by rememberSaveable { mutableStateOf(false) }
     var showAddCashDialog by remember { mutableStateOf(false) }
     var tickerToRemove by remember { mutableStateOf<WatchlistTicker?>(null) }
     var depositAmountInput by remember { mutableStateOf("") }
@@ -283,7 +292,7 @@ fun PortfolioScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = formatCurrency(totalEquity, baseCurrency),
+                                        text = formatCurrency(totalEquity, baseCurrency, isHidden = isAmountsHidden),
                                         fontSize = 24.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color.White
@@ -299,7 +308,7 @@ fun PortfolioScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = formatCurrency(buyingPower, baseCurrency),
+                                        text = formatCurrency(buyingPower, baseCurrency, isHidden = isAmountsHidden),
                                         fontSize = 18.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TealAccent
@@ -311,13 +320,13 @@ fun PortfolioScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Cash: ${formatCurrency(totalCashBalance, baseCurrency)}",
+                                    text = if (isAmountsHidden) "Cash: ••••" else "Cash: ${formatCurrency(totalCashBalance, baseCurrency)}",
                                     fontSize = 11.sp,
                                     color = LightText
                                 )
                                 if (totalStockMarketValue > 0.0) {
                                     Text(
-                                        text = "Market Value: ${formatCurrency(totalStockMarketValue, baseCurrency)}",
+                                        text = if (isAmountsHidden) "Market Value: ••••" else "Market Value: ${formatCurrency(totalStockMarketValue, baseCurrency)}",
                                         fontSize = 11.sp,
                                         color = LightText
                                     )
@@ -495,7 +504,7 @@ fun PortfolioScreen(
                                 .fillMaxWidth()
                                 .padding(20.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Bottom
+                            verticalAlignment = Alignment.Top
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
@@ -507,7 +516,7 @@ fun PortfolioScreen(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = formatCurrency(aggregateTotalPnL),
+                                    text = formatCurrency(aggregateTotalPnL, isHidden = isAmountsHidden),
                                     fontSize = 32.sp,
                                     fontWeight = FontWeight.Black,
                                     color = LightText,
@@ -517,7 +526,7 @@ fun PortfolioScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val signPrems = if (aggregatePremiums >= 0) "+" else ""
                                     Text(
-                                        text = "Premiums: $signPrems${formatCurrency(aggregatePremiums)}",
+                                        text = if (isAmountsHidden) "Premiums: ••••" else "Premiums: $signPrems${formatCurrency(aggregatePremiums)}",
                                         fontSize = 12.sp,
                                         color = TealAccent,
                                         fontWeight = FontWeight.SemiBold
@@ -529,7 +538,7 @@ fun PortfolioScreen(
                                     )
                                     val signUnrealized = if (aggregateUnrealizedPnL >= 0) "+" else ""
                                     Text(
-                                        text = "Unrealized: $signUnrealized${formatCurrency(aggregateUnrealizedPnL)}",
+                                        text = if (isAmountsHidden) "Unrealized: ••••" else "Unrealized: $signUnrealized${formatCurrency(aggregateUnrealizedPnL)}",
                                         fontSize = 12.sp,
                                         color = if(aggregateUnrealizedPnL >= 0) TealAccent else RedLoss,
                                         fontWeight = FontWeight.SemiBold
@@ -537,19 +546,38 @@ fun PortfolioScreen(
                                 }
                             }
 
-                            // Currency indicator pill matching HTML theme
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color.White.copy(alpha = 0.08f))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(
-                                    text = baseCurrency,
-                                    color = LightText,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                )
+                                IconButton(
+                                    onClick = { isAmountsHidden = !isAmountsHidden },
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .testTag("portfolio_toggle_mask_button")
+                                ) {
+                                    Icon(
+                                        imageVector = if (isAmountsHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = if (isAmountsHidden) "Show balances" else "Hide balances",
+                                        tint = GrayText,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                // Currency indicator pill matching HTML theme
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White.copy(alpha = 0.08f))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = baseCurrency,
+                                        color = LightText,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
                         }
 
@@ -574,7 +602,7 @@ fun PortfolioScreen(
                                     Text("TOTAL EQUITY", fontSize = 10.sp, color = GrayText, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = formatCurrency(totalEquity),
+                                        text = formatCurrency(totalEquity, isHidden = isAmountsHidden),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -586,7 +614,7 @@ fun PortfolioScreen(
                                     Text("CASH", fontSize = 10.sp, color = GrayText, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = formatCurrency(totalCashBalance),
+                                        text = formatCurrency(totalCashBalance, isHidden = isAmountsHidden),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -603,7 +631,7 @@ fun PortfolioScreen(
                                     Text("BUYING POWER", fontSize = 10.sp, color = GrayText, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = formatCurrency(buyingPower),
+                                        text = formatCurrency(buyingPower, isHidden = isAmountsHidden),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -611,7 +639,7 @@ fun PortfolioScreen(
                                     if (totalCspLocked > 0.0) {
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "CSP Lock: " + formatCurrency(totalCspLocked),
+                                            text = if (isAmountsHidden) "CSP Lock: ••••" else "CSP Lock: " + formatCurrency(totalCspLocked),
                                             fontSize = 9.sp,
                                             color = AmberWarning,
                                             fontWeight = FontWeight.Bold
@@ -625,7 +653,7 @@ fun PortfolioScreen(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = if (totalStockMarketValue > 0.0) {
-                                            formatCurrency(totalStockMarketValue)
+                                            formatCurrency(totalStockMarketValue, isHidden = isAmountsHidden)
                                         } else "—",
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
@@ -1387,7 +1415,7 @@ fun PortfolioScreen(
                                 Text("Option premiums collected:", fontSize = 12.sp, color = GrayText)
                                 val premDisplay = premiumsCollected
                                 Text(
-                                    text = formatCurrency(premDisplay),
+                                    text = formatCurrency(premDisplay, isHidden = isAmountsHidden),
                                     fontSize = 12.sp,
                                     color = TealAccent,
                                     fontWeight = FontWeight.Bold
@@ -1402,7 +1430,11 @@ fun PortfolioScreen(
                                 val pnlDisplay = unrealizedPnL
                                 Text(
                                     text = if (assignedShares > 0) {
-                                        "${formatCurrency(pnlDisplay)} (${String.format(Locale.getDefault(), "%.1f%%", unrealizedPnLPct)})"
+                                        if (isAmountsHidden) {
+                                            "••••"
+                                        } else {
+                                            "${formatCurrency(pnlDisplay)} (${String.format(Locale.getDefault(), "%.1f%%", unrealizedPnLPct)})"
+                                        }
                                     } else "—",
                                     fontSize = 12.sp,
                                     color = if (pnlDisplay >= 0) TealAccent else RedLoss,
@@ -1432,7 +1464,7 @@ fun PortfolioScreen(
                                         Text("Prorated Share of FCF (Ann.):", fontSize = 12.sp, color = GrayText)
                                         val fcfDisplay = estimatedAnnualFcfValue
                                         Text(
-                                            text = formatCurrency(fcfDisplay),
+                                            text = formatCurrency(fcfDisplay, isHidden = isAmountsHidden),
                                             fontSize = 12.sp,
                                             color = TealAccent,
                                             fontWeight = FontWeight.Bold
