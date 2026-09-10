@@ -6,8 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import kotlinx.coroutines.launch
@@ -107,11 +105,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val baseCurrency by viewModel.currencyFlow.collectAsStateWithLifecycle()
-                val apiToken by viewModel.apiKeyFlow.collectAsStateWithLifecycle()
                 val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
                 val activeTicker by viewModel.selectedCalculatorTicker.collectAsStateWithLifecycle()
-                val snapshot by viewModel.activeCalculatorSnapshot.collectAsStateWithLifecycle()
 
                 LaunchedEffect(watchlist) {
                     if (watchlist.isNotEmpty()) {
@@ -482,7 +477,7 @@ class MainActivity : ComponentActivity() {
                                 colors = ButtonDefaults.buttonColors(containerColor = TealAccent, contentColor = Color.Black),
                                 onClick = {
                                     if (tickerSymbol.isNotEmpty()) {
-                                        val finalName = if (companyName.isEmpty()) tickerSymbol else companyName
+                                        val finalName = companyName.ifEmpty { tickerSymbol }
                                         viewModel.addTickerToWatchlist(tickerSymbol, finalName)
                                         viewModel.selectedCalculatorTicker.value = tickerSymbol
                                         showAddTickerDialog = false

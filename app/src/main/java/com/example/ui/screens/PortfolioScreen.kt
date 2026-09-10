@@ -1,7 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -62,7 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.util.Locale
 
 private val CURRENCY_DECIMAL_FORMAT by lazy {
-    val symbols = java.text.DecimalFormatSymbols(java.util.Locale.US).apply {
+    val symbols = java.text.DecimalFormatSymbols(Locale.US).apply {
         groupingSeparator = ' '
     }
     java.text.DecimalFormat("#,##0.00", symbols)
@@ -99,7 +97,6 @@ fun PortfolioScreen(
     val baseCurrency by viewModel.currencyFlow.collectAsStateWithLifecycle()
     val isSyncingAll by viewModel.isSyncingAll.collectAsStateWithLifecycle()
     val syncError by viewModel.syncError.collectAsStateWithLifecycle()
-    val apiKey by viewModel.apiKeyFlow.collectAsStateWithLifecycle()
 
     val lazyListState = rememberLazyListState()
     val hapticFeedback = LocalHapticFeedback.current
@@ -123,7 +120,7 @@ fun PortfolioScreen(
     var showAddCashDialog by remember { mutableStateOf(false) }
     var tickerToRemove by remember { mutableStateOf<WatchlistTicker?>(null) }
     var depositAmountInput by remember { mutableStateOf("") }
-    val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()) }
+    val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     var depositDateInput by remember { mutableStateOf(sdf.format(java.util.Date())) }
     var isDepositSelected by remember { mutableStateOf(true) }
 
@@ -159,17 +156,23 @@ fun PortfolioScreen(
         }
     }
 
-    val cashDeposits = remember(allTrades) {
-        allTrades.filter { it.tradeType == "Deposit" || it.tradeType == "Withdrawal" }.sumOf { it.netCreditDebit }
+    val portfolioSummary = remember(watchlist, allTrades, allSnapshots, baseCurrency) {
+        viewModel.calculatePortfolioSummary(
+            watchlist = watchlist,
+            trades = allTrades,
+            snapshots = allSnapshots,
+            baseCurrency = baseCurrency
+        )
     }
-    val netTradeFlows = remember(allTrades, baseCurrency) {
-        allTrades.filter { it.tradeType != "Deposit" && it.tradeType != "Withdrawal" }.sumOf {
-            val tickerCurr = getTickerCurrency(it.ticker)
-            val fx = getFxMultiplier(tickerCurr, baseCurrency)
-            it.netCreditDebit * fx
-        }
-    }
-    val totalCashBalance = cashDeposits + netTradeFlows
+
+    val totalCashBalance = portfolioSummary.totalCashBalance
+    val totalEquity = portfolioSummary.totalEquity
+    val buyingPower = portfolioSummary.buyingPower
+    val totalStockMarketValue = portfolioSummary.totalStockMarketValue
+    val aggregatePremiums = portfolioSummary.aggregatePremiums
+    val aggregateUnrealizedPnL = portfolioSummary.aggregateUnrealizedPnL
+    val aggregateTotalPnL = portfolioSummary.aggregateTotalPnL
+    val totalCspLocked = portfolioSummary.totalCspLocked
     val isRefreshing = isSyncingAll
 
     PullToRefreshBox(
@@ -250,8 +253,8 @@ fun PortfolioScreen(
                 }
             }
 
-            // Available Cash/Buying Power Card in empty state (if user enters a cash deposit)
-            if (totalCashBalance != 0.0) {
+            // Available Cash/Buying Power/Total Equity Card in empty state
+            if (totalCashBalance != 0.0 || totalEquity != 0.0) {
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -259,28 +262,66 @@ fun PortfolioScreen(
                         colors = CardDefaults.cardColors(containerColor = SurfCard),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(18.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "TOTAL EQUITY",
+                                        fontSize = 10.sp,
+                                        color = GrayText,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = formatCurrency(totalEquity, baseCurrency),
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "BUYING POWER",
+                                        fontSize = 10.sp,
+                                        color = GrayText,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = formatCurrency(buyingPower, baseCurrency),
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TealAccent
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
                                 Text(
-                                    text = "AVAILABLE CASH / BUYING POWER",
-                                    fontSize = 10.sp,
-                                    color = GrayText,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.5.sp
+                                    text = "Cash: ${formatCurrency(totalCashBalance, baseCurrency)}",
+                                    fontSize = 11.sp,
+                                    color = LightText
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = formatCurrency(totalCashBalance, baseCurrency),
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
-                                )
+                                if (totalStockMarketValue > 0.0) {
+                                    Text(
+                                        text = "Market Value: ${formatCurrency(totalStockMarketValue, baseCurrency)}",
+                                        fontSize = 11.sp,
+                                        color = LightText
+                                    )
+                                }
                             }
                         }
                     }
@@ -348,166 +389,69 @@ fun PortfolioScreen(
             }
 
             item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = SurfCard),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Stock Transactions",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = LightText
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Log buying or selling of stock shares to track your custom investment yield & portfolio holdings directly.",
+                            color = GrayText,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    isBuyStockSelected = true
+                                    showLogStockDialog = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = TealAccent, contentColor = Color.Black),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f).height(44.dp)
+                            ) {
+                                Text("+ BUY STOCK", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            Button(
+                                onClick = {
+                                    isBuyStockSelected = false
+                                    showLogStockDialog = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SurfCard, contentColor = RedLoss),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, RedLoss.copy(alpha = 0.5f)),
+                                modifier = Modifier.weight(1f).height(44.dp)
+                            ) {
+                                Text("- SELL STOCK", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
     } else {
-
-        // Compute aggregate metrics across all active tickers
-        val aggregatePremiums = remember(watchlist, allTrades, baseCurrency) {
-            watchlist.fold(0.0) { sum, ticker ->
-                val tickerCurr = getTickerCurrency(ticker.symbol)
-                val fx = getFxMultiplier(tickerCurr, baseCurrency)
-                val trades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
-                val tickerPrems = trades.filter {
-                    it.tradeType == "Sell CSP" || it.tradeType == "Buy to Close" || it.tradeType == "Sell CC"
-                }.sumOf { it.netCreditDebit }
-                sum + (tickerPrems * fx)
-            }
-        }
-
-        val aggregateUnrealizedPnL = remember(watchlist, allTrades, baseCurrency) {
-            val now = System.currentTimeMillis()
-            watchlist.fold(0.0) { sum, ticker ->
-                val tickerCurr = getTickerCurrency(ticker.symbol)
-                val fx = getFxMultiplier(tickerCurr, baseCurrency)
-                val trades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
-                val assignedShares = trades.fold(0) { s, trade ->
-                    when (trade.tradeType) {
-                        "Assignment" -> s + (trade.contracts * 100)
-                        "Called Away" -> s - (trade.contracts * 100)
-                        "Buying shares" -> s + trade.contracts
-                        "Selling shares" -> s - trade.contracts
-                        "Sell CSP" -> {
-                            when (trade.manualOutcome) {
-                                "ASSIGNED" -> s + (trade.contracts * 100)
-                                "EXPIRED_WORTHLESS" -> s
-                                else -> {
-                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
-                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < trade.strikePrice) {
-                                        s + (trade.contracts * 100)
-                                    } else s
-                                }
-                            }
-                        }
-                        "Sell CC" -> {
-                            when (trade.manualOutcome) {
-                                "CALLED_AWAY" -> s - (trade.contracts * 100)
-                                "EXPIRED_WORTHLESS" -> s
-                                else -> {
-                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
-                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice > trade.strikePrice) {
-                                        s - (trade.contracts * 100)
-                                    } else s
-                                }
-                            }
-                        }
-                        else -> s
-                    }
-                }.coerceAtLeast(0)
-
-                val totalBuyShares = trades.fold(0) { s, trade ->
-                    when (trade.tradeType) {
-                        "Assignment" -> s + (trade.contracts * 100)
-                        "Buying shares" -> s + trade.contracts
-                        "Sell CSP" -> {
-                            when (trade.manualOutcome) {
-                                "ASSIGNED" -> s + (trade.contracts * 100)
-                                "EXPIRED_WORTHLESS" -> s
-                                else -> {
-                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
-                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < trade.strikePrice) {
-                                        s + (trade.contracts * 100)
-                                    } else s
-                                }
-                            }
-                        }
-                        else -> s
-                    }
-                }
-                val totalBuyCost = trades.sumOf { trade ->
-                    when (trade.tradeType) {
-                        "Assignment" -> trade.strikePrice * 100.0 * trade.contracts
-                        "Buying shares" -> trade.strikePrice * trade.contracts
-                        "Sell CSP" -> {
-                            when (trade.manualOutcome) {
-                                "ASSIGNED" -> trade.strikePrice * 100.0 * trade.contracts
-                                "EXPIRED_WORTHLESS" -> 0.0
-                                else -> {
-                                    val isExpired = trade.expiryDate != null && trade.expiryDate <= now
-                                    if (!trade.isClosed && isExpired && ticker.livePrice > 0.0 && ticker.livePrice < trade.strikePrice) {
-                                        trade.strikePrice * 100.0 * trade.contracts
-                                    } else 0.0
-                                }
-                            }
-                        }
-                        else -> 0.0
-                    }
-                }
-                val avgBuyPrice = if (totalBuyShares > 0) totalBuyCost / totalBuyShares else 0.0
-                val baseCostBasis = ticker.manuallyEnteredCostBasis ?: avgBuyPrice
-
-                val tickerPnL = if (assignedShares > 0) {
-                    (ticker.livePrice - baseCostBasis) * assignedShares
-                } else 0.0
-                sum + (tickerPnL * fx)
-            }
-        }
-
-        val aggregateTotalPnL = aggregatePremiums + aggregateUnrealizedPnL
-
-        val totalCspLocked = remember(watchlist, allTrades, baseCurrency) {
-            val currentTime = System.currentTimeMillis()
-            var cspLockSum = 0.0
-            watchlist.forEach { ticker ->
-                val tickerCurr = getTickerCurrency(ticker.symbol)
-                val fx = getFxMultiplier(tickerCurr, baseCurrency)
-                val tickerTrades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
-                val activeCsps = tickerTrades.filter { 
-                    it.tradeType == "Sell CSP" && 
-                    !it.isClosed && 
-                    it.manualOutcome != "EXPIRED_WORTHLESS" && 
-                    it.manualOutcome != "ASSIGNED" && 
-                    it.expiryDate != null && 
-                    it.expiryDate > currentTime 
-                }
-                val closures = tickerTrades.filter { it.tradeType == "Buy to Close" || it.tradeType == "Assignment" }
-                
-                activeCsps.forEach { csp ->
-                    val matchingClosures = closures.filter { it.strikePrice == csp.strikePrice && it.date >= csp.date }
-                    val closedContracts = matchingClosures.sumOf { it.contracts }
-                    val openContracts = (csp.contracts - closedContracts).coerceAtLeast(0)
-                    cspLockSum += (openContracts * 100.0 * csp.strikePrice) * fx
-                }
-            }
-            cspLockSum
-        }
-
-        val totalStockMarketValue = remember(watchlist, allTrades, baseCurrency) {
-            var mvalSum = 0.0
-            watchlist.forEach { ticker ->
-                val tickerCurr = getTickerCurrency(ticker.symbol)
-                val fx = getFxMultiplier(tickerCurr, baseCurrency)
-                val tickerTrades = allTrades.filter { it.ticker.equals(ticker.symbol, ignoreCase = true) }
-                val assignedShares = tickerTrades.fold(0) { sum, trade ->
-                    when (trade.tradeType) {
-                        "Assignment" -> sum + (trade.contracts * 100)
-                        "Called Away" -> sum - (trade.contracts * 100)
-                        "Buying shares" -> sum + trade.contracts
-                        "Selling shares" -> sum - trade.contracts
-                        else -> sum
-                    }
-                }.coerceAtLeast(0)
-                
-                if (assignedShares > 0) {
-                    mvalSum += (assignedShares * ticker.livePrice) * fx
-                }
-            }
-            mvalSum
-        }
-
-        val totalEquity = totalCashBalance + totalStockMarketValue
-        val buyingPower = totalCashBalance - totalCspLocked
 
         LazyColumn(
             state = lazyListState,
@@ -609,7 +553,7 @@ fun PortfolioScreen(
                             }
                         }
 
-                        Divider(
+                        HorizontalDivider(
                             color = TealAccent.copy(alpha = 0.12f),
                             modifier = Modifier.padding(horizontal = 20.dp)
                         )
@@ -794,7 +738,6 @@ fun PortfolioScreen(
                     }
                 }
                 val avgBuyPrice = if (totalBuyShares > 0) totalBuyCost / totalBuyShares else 0.0
-                val assignmentCosts = avgBuyPrice * assignedShares
 
                 // Determine active Cost Basis:
                 val activeCostBasis = viewModel.calculateEffectiveCostBasis(
@@ -1156,7 +1099,7 @@ fun PortfolioScreen(
                             }
                         }
 
-                        Divider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 12.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 12.dp))
 
                         // Stats Grid Row (3 Equal Sized Squares: Cost Basis, DCF Valuation, Price Target)
                         Row(
@@ -1334,8 +1277,8 @@ fun PortfolioScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = if (hasTarget) {
-                                            formatCurrency(targetVal!!)
+                                        text = if (targetVal != null) {
+                                            formatCurrency(targetVal)
                                         } else "--",
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.ExtraBold,
@@ -1343,9 +1286,9 @@ fun PortfolioScreen(
                                         maxLines = 1
                                     )
                                     Spacer(modifier = Modifier.height(1.dp))
-                                    if (hasTarget && (activeCostBasis > 0.0 || stockLivePrice > 0.0)) {
+                                    if (targetVal != null && (activeCostBasis > 0.0 || stockLivePrice > 0.0)) {
                                         val referenceBasis = if (activeCostBasis > 0.0) activeCostBasis else stockLivePrice
-                                        val diffPct = ((referenceBasis - targetVal!!) / targetVal) * 100.0
+                                        val diffPct = ((referenceBasis - targetVal) / targetVal) * 100.0
                                         val isOver = diffPct > 0.05
                                         val isUnder = diffPct < -0.05
                                         val pctFormatted = String.format(Locale.US, "%.1f", kotlin.math.abs(diffPct))
@@ -1729,7 +1672,7 @@ fun PortfolioScreen(
                     onClick = {
                         val amount = depositAmountInput.toDoubleOrNull() ?: 0.0
                         if (amount > 0.0) {
-                            val tradeTime = try { sdf.parse(depositDateInput)?.time ?: System.currentTimeMillis() } catch (e: Exception) { System.currentTimeMillis() }
+                            val tradeTime = try { sdf.parse(depositDateInput)?.time ?: System.currentTimeMillis() } catch (_: Exception) { System.currentTimeMillis() }
                             viewModel.logTrade(
                                 ticker = "CASH",
                                 tradeType = if (isDepositSelected) "Deposit" else "Withdrawal",
@@ -1933,7 +1876,7 @@ fun PortfolioScreen(
                         val fcfYieldVal = stockFcfYieldInput.toDoubleOrNull() ?: 0.0
 
                         if (symbol.isNotEmpty() && qty > 0 && price > 0.0) {
-                            val tradeTime = try { sdf.parse(stockDateInput)?.time ?: System.currentTimeMillis() } catch (e: Exception) { System.currentTimeMillis() }
+                            val tradeTime = try { sdf.parse(stockDateInput)?.time ?: System.currentTimeMillis() } catch (_: Exception) { System.currentTimeMillis() }
                             viewModel.logTrade(
                                 ticker = symbol,
                                 tradeType = if (isBuyStockSelected) "Buying shares" else "Selling shares",

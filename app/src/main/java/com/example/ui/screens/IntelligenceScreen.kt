@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,7 +35,6 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -44,7 +42,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.domain.model.CalculatorSnapshot
 import com.example.ui.theme.*
 import com.example.viewmodel.FinanceViewModel
 import java.util.Locale
@@ -60,10 +57,9 @@ import kotlin.math.sin
 @Composable
 fun IntelligenceScreen(
     viewModel: FinanceViewModel,
-    activeTicker: String
+    activeTicker: String,
 ) {
     val snapshot by viewModel.activeCalculatorSnapshot.collectAsStateWithLifecycle()
-    val isSyncing by viewModel.tickerSyncing.collectAsStateWithLifecycle()
     val syncError by viewModel.syncError.collectAsStateWithLifecycle()
     val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
 
@@ -261,8 +257,6 @@ fun IntelligenceScreen(
 
     val totalScore = ((balanceSheetScore + profitQualityScore) / 2)
 
-    val profitabilityScore = qualCriteria.filter { it.checked }.sumOf { it.points }
-
     val totalQualPoints = qualCriteria.filter { it.checked }.sumOf { it.points }
     val checkedCount = qualCriteria.count { it.checked }
 
@@ -424,7 +418,7 @@ fun IntelligenceScreen(
                     .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val containerWidth = maxWidth
+                val containerWidth = this.maxWidth
                 
                 // Scale diameters depending on available screen width to make them touch/overlap perfectly
                 val centerDiameter = (containerWidth * 0.44f).coerceIn(135.dp, 185.dp)
@@ -643,7 +637,7 @@ fun IntelligenceScreen(
                             OutlinedTextField(
                                 value = editCashInput,
                                 onValueChange = { editCashInput = it },
-                                label = { Text("Cash (\$M)", fontSize = 10.sp) },
+                                label = { Text("Cash (${'$'}M)", fontSize = 10.sp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
@@ -658,7 +652,7 @@ fun IntelligenceScreen(
                             OutlinedTextField(
                                 value = editDebtInput,
                                 onValueChange = { editDebtInput = it },
-                                label = { Text("LT Debt (\$M)", fontSize = 10.sp) },
+                                label = { Text("LT Debt (${'$'}M)", fontSize = 10.sp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
@@ -673,7 +667,7 @@ fun IntelligenceScreen(
                             OutlinedTextField(
                                 value = editFcfInput,
                                 onValueChange = { editFcfInput = it },
-                                label = { Text("FCF (\$M)", fontSize = 10.sp) },
+                                label = { Text("FCF (${'$'}M)", fontSize = 10.sp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
@@ -812,7 +806,7 @@ fun IntelligenceScreen(
                                     val mVal = editFcfMarginInput.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val convVal = editFcfConversionInput.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     
-                                    val newNetIncome = if (convVal != 0.0 && snapObj.ttmFcf != 0.0) {
+                                    val newNetIncome = if ((convVal != 0.0) && (snapObj.ttmFcf != 0.0)) {
                                         snapObj.ttmFcf / (convVal / 100.0)
                                     } else {
                                         snapObj.ttmNetIncome
@@ -854,7 +848,7 @@ fun IntelligenceScreen(
         }
 
         // Group qualCriteria by MoatSubcategory and loop over each group
-        MoatSubcategory.values().forEach { subcat ->
+        MoatSubcategory.entries.forEach { subcat ->
             val subcatItems = qualCriteria.filter { it.category == subcat }
             if (subcatItems.isNotEmpty()) {
                 item(key = "header_${subcat.name}") {
@@ -886,7 +880,7 @@ fun IntelligenceScreen(
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
-                        Divider(color = subcat.color.copy(alpha = 0.25f), thickness = 1.dp)
+                        HorizontalDivider(color = subcat.color.copy(alpha = 0.25f), thickness = 1.dp)
                     }
                 }
                 
@@ -968,7 +962,7 @@ fun IntelligenceScreen(
                         color = LightText
                     )
 
-                    Divider(color = BorderGray, thickness = 0.5.dp)
+                    HorizontalDivider(color = BorderGray, thickness = 0.5.dp)
 
                     // Tier 1 Explainer
                     Column {
@@ -1080,7 +1074,7 @@ fun IntelligenceScreen(
                         color = LightText
                     )
 
-                    Divider(color = BorderGray, thickness = 0.5.dp)
+                    HorizontalDivider(color = BorderGray, thickness = 0.5.dp)
 
                     // ROIC Explainer
                     Column {
@@ -1192,7 +1186,7 @@ fun IntelligenceScreen(
                         color = LightText
                     )
 
-                    Divider(color = BorderGray, thickness = 0.5.dp)
+                    HorizontalDivider(color = BorderGray, thickness = 0.5.dp)
 
                     // Balance Sheet component
                     Column {
@@ -1267,8 +1261,8 @@ fun calculateBalanceSheetHealthScore(
     freeCashFlow: Double
 ): Int {
     return try {
-        val safeCash = Math.max(0.0, cashOnHand)
-        val safeDebt = Math.max(0.0, longTermDebt)
+        val safeCash = maxOf(0.0, cashOnHand)
+        val safeDebt = maxOf(0.0, longTermDebt)
 
         // Tier 1: Zero Debt Condition
         if (safeDebt <= 0.0) {
@@ -1297,7 +1291,7 @@ fun calculateBalanceSheetHealthScore(
                 return rawScore.roundToInt().coerceIn(0, 60)
             }
         }
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         0
     }
 }
@@ -1332,9 +1326,9 @@ fun calculateProfitQualityRankScore(
 
         // Detect if inputs are expressed as percentages (e.g., 15.0 for 15.0%) or decimals (e.g., 0.15 for 15.0%) independently.
         // If the absolute value of the parameter is strictly greater than 1.0 (or 2.0 for FCF conversion), we treat it as percentage mode.
-        val r = if (Math.abs(rInput) > 1.0) rInput / 100.0 else rInput
-        val m = if (Math.abs(mInput) > 1.0) mInput / 100.0 else mInput
-        val c = if (Math.abs(cInput) > 2.0) cInput / 100.0 else cInput
+        val r = if (kotlin.math.abs(rInput) > 1.0) rInput / 100.0 else rInput
+        val m = if (kotlin.math.abs(mInput) > 1.0) mInput / 100.0 else mInput
+        val c = if (kotlin.math.abs(cInput) > 2.0) cInput / 100.0 else cInput
 
         // Enforce floors at 0.0 to handle negative inputs
         val safeRoic = if (r < 0.0) 0.0 else r
@@ -1348,23 +1342,23 @@ fun calculateProfitQualityRankScore(
 
         // 1. Return on Invested Capital (Weight: 30%)
         val normalizedRoic = (safeRoic / targetRoic) * 100.0
-        val cappedRoic = Math.min(normalizedRoic, 100.0)
+        val cappedRoic = minOf(normalizedRoic, 100.0)
         val roicContribution = cappedRoic * 0.30
 
         // 2. Free Cash Flow Margin (Weight: 40%)
         val normalizedFcfMargin = (safeFcfMargin / targetFcfMargin) * 100.0
-        val cappedFcfMargin = Math.min(normalizedFcfMargin, 100.0)
+        val cappedFcfMargin = minOf(normalizedFcfMargin, 100.0)
         val fcfMarginContribution = cappedFcfMargin * 0.40
 
         // 3. Free Cash Flow Conversion (Weight: 30%)
         val normalizedFcfConversion = (safeFcfConversion / targetFcfConversion) * 100.0
-        val cappedFcfConversion = Math.min(normalizedFcfConversion, 100.0)
+        val cappedFcfConversion = minOf(normalizedFcfConversion, 100.0)
         val fcfConversionContribution = cappedFcfConversion * 0.30
 
         // Total score out of 100, rounded to nearest whole number
         val totalScore = roicContribution + fcfMarginContribution + fcfConversionContribution
         totalScore.roundToInt().coerceIn(0, 100)
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         0
     }
 }
@@ -1397,30 +1391,8 @@ fun GlowingGauge(
         label = "gauge_progress"
     )
 
-    // Continuous rotation angle for outer golden dash and leading cursor flares (slowed down by 50% from 6s to 12s)
-    val infiniteTransition = rememberInfiniteTransition(label = "gauge_glow")
-    val rotationAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(12000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "orbit_rotation"
-    )
-
-    // Gentle, very subtle and slow rotation of the solar rays to create shimmering (slowed down by 50% from 45s to 90s)
-    val starRayRotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(90000, easing = LinearEasing), // 90 seconds per full turn (very subtle and premium)
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "star_ray_rotation"
-    )
-
     // Gentle breathing bloom pulse specifically for the divine light emission of the purple gauge
+    val infiniteTransition = rememberInfiniteTransition(label = "gauge_glow")
     val bloomBreathingAlpha by infiniteTransition.animateFloat(
         initialValue = 0.65f,
         targetValue = 1.0f,
@@ -1459,8 +1431,7 @@ fun GlowingGauge(
             val width = this.size.width
             val height = this.size.height
             val center = Offset(width / 2f, height / 2f)
-            val safetyPadding = safetyPaddingPx
-            val radius = (width - strokeWidthPx - safetyPadding) / 2f
+            val radius = (width - strokeWidthPx - safetyPaddingPx) / 2f
 
             // Gauge bounds
             val startAngle = 135f
@@ -1489,7 +1460,7 @@ fun GlowingGauge(
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            color.copy(alpha = 0.48f * (0.85f + bloomBreathingAlpha * 0.15f)),
+                            color.copy(alpha = (0.48f * (0.85f + bloomBreathingAlpha * 0.15f))),
                             color.copy(alpha = 0.15f),
                             Color.Transparent
                         ),
@@ -1543,7 +1514,7 @@ fun GlowingGauge(
                     val dotY = row * dotSpacing
                     val dx = dotX - center.x
                     val dy = dotY - center.y
-                    val dist = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                    val dist = kotlin.math.hypot(dx, dy)
                     if (dist < radius - strokeWidthPx) {
                         drawCircle(
                             color = Color.White.copy(alpha = 0.04f),
@@ -1739,7 +1710,7 @@ fun GlowingGauge(
                 }
 
                 Text(
-                    text = "$displayScore",
+                    text = displayScore.toString(),
                     fontSize = scoreTextSize,
                     color = displayTextColor,
                     fontWeight = FontWeight.ExtraBold,

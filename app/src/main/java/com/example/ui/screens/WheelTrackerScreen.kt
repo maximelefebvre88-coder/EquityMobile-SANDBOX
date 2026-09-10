@@ -252,7 +252,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
 
         val centerStrike = remember(currentLivePrice) {
             if (currentLivePrice > 0.0) {
-                (Math.round(currentLivePrice / 0.25) * 0.25).toFloat()
+                (kotlin.math.round(currentLivePrice / 0.25) * 0.25).toFloat()
             } else {
                 100f
             }
@@ -264,17 +264,17 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
             centerStrike + 64 * 0.25f
         }
 
-        var strikeSliderVal by remember { mutableStateOf(centerStrike) }
-        var premiumSliderVal by remember { mutableStateOf(0f) }
+        var strikeSliderVal by remember { mutableFloatStateOf(centerStrike) }
+        var premiumSliderVal by remember { mutableFloatStateOf(0f) }
 
-        var lastHapticStrike by remember { mutableStateOf(centerStrike) }
-        var lastHapticPremium by remember { mutableStateOf(0f) }
+        var lastHapticStrike by remember { mutableFloatStateOf(centerStrike) }
+        var lastHapticPremium by remember { mutableFloatStateOf(0f) }
 
         val tradeDatePickerDialog = remember(dateStr) {
             val cal = Calendar.getInstance()
             try {
                 sdf.parse(dateStr)?.let { cal.time = it }
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
             android.app.DatePickerDialog(
                 context,
                 { _, year, month, dayOfMonth ->
@@ -292,7 +292,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
             val cal = Calendar.getInstance()
             try {
                 sdf.parse(expiryStr)?.let { cal.time = it }
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
             android.app.DatePickerDialog(
                 context,
                 { _, year, month, dayOfMonth ->
@@ -312,7 +312,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                 if (closeDateStr.isNotEmpty()) {
                     sdf.parse(closeDateStr)?.let { cal.time = it }
                 }
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
             android.app.DatePickerDialog(
                 context,
                 { _, year, month, dayOfMonth ->
@@ -499,7 +499,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             SummaryCard(
                                 title = "Total Shares Held",
-                                value = "$totalSharesHeld",
+                                value = totalSharesHeld.toString(),
                                 desc = "Assigned vs Called",
                                 modifier = Modifier.weight(1f)
                             )
@@ -693,7 +693,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                                             Slider(
                                                 value = strikeSliderVal.coerceIn(minStrike, maxStrike),
                                                 onValueChange = { newValue ->
-                                                    val tickOffset = Math.round((newValue - centerStrike) / 0.25f).coerceIn(-64, 64)
+                                                    val tickOffset = kotlin.math.round((newValue - centerStrike) / 0.25f).toInt().coerceIn(-64, 64)
                                                     val snapped = (centerStrike + tickOffset * 0.25f).coerceAtLeast(0.25f)
                                                     strikeSliderVal = snapped
                                                     if (snapped != lastHapticStrike) {
@@ -784,8 +784,8 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                                                     value = premiumSliderVal.coerceIn(0f, 10f),
                                                     onValueChange = { newValue ->
                                                         premiumSliderVal = newValue
-                                                        val snapped = (Math.round(newValue / 0.05f) * 0.05f).toFloat()
-                                                        if (snapped != (Math.round(lastHapticPremium / 0.05f) * 0.05f).toFloat()) {
+                                                        val snapped = (kotlin.math.round(newValue / 0.05f) * 0.05f)
+                                                        if (snapped != (kotlin.math.round(lastHapticPremium / 0.05f) * 0.05f)) {
                                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                             lastHapticPremium = snapped
                                                         }
@@ -1462,9 +1462,9 @@ fun TradeRow(
                     Text("Details", fontSize = 10.sp, color = GrayText)
                     val isShareTrade = trade.tradeType == "Buying shares" || trade.tradeType == "Selling shares"
                     val detailText = if (isShareTrade) {
-                        "${trade.contracts} shares @ ${String.format(Locale.getDefault(), "$%.2f", trade.strikePrice)}"
+                        "${trade.contracts} shares @ ${String.format(Locale.getDefault(), "$%.2f %s", trade.strikePrice, tickerCurrency)}"
                     } else {
-                        "${trade.contracts} contracts @ ${String.format(Locale.getDefault(), "$%.2f", trade.strikePrice)} strike"
+                        "${trade.contracts} contracts @ ${String.format(Locale.getDefault(), "$%.2f %s", trade.strikePrice, tickerCurrency)} strike"
                     }
                     Text(
                         text = detailText,

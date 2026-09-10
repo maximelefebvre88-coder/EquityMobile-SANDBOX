@@ -1,14 +1,10 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -36,7 +32,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +40,6 @@ fun CalculatorScreen(
     onNavigateToSettings: () -> Unit = {}
 ) {
     val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
-    val allTrades by viewModel.allTrades.collectAsStateWithLifecycle()
     val activeTicker by viewModel.selectedCalculatorTicker.collectAsStateWithLifecycle()
     val snapshot by viewModel.activeCalculatorSnapshot.collectAsStateWithLifecycle()
     val isSyncing by viewModel.tickerSyncing.collectAsStateWithLifecycle()
@@ -53,7 +47,6 @@ fun CalculatorScreen(
     val tickerCurrency = getTickerCurrency(activeTicker)
 
     val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
 
     // Surface any sync errors directly via the Snackbar if user is scrolled anywhere
     LaunchedEffect(syncError) {
@@ -100,7 +93,7 @@ fun CalculatorScreen(
                 roicInput = if (snap.roicPercent > 0.0) String.format(Locale.US, "%.2f", snap.roicPercent) else ""
 
                 val snapNetIncomeM = snap.ttmNetIncome / 1_000_000.0
-                ttmNetIncomeInput = if (Math.abs(snapNetIncomeM) > 0.0) String.format(Locale.US, "%.2f", snapNetIncomeM) else ""
+                ttmNetIncomeInput = if (kotlin.math.abs(snapNetIncomeM) > 0.0) String.format(Locale.US, "%.2f", snapNetIncomeM) else ""
             }
         }
     }
@@ -137,10 +130,10 @@ fun CalculatorScreen(
             val parsedRoic = roicInput.replace(',', '.').toDoubleOrNull()
             val newRoic = parsedRoic ?: snap.roicPercent
 
-            val newRevPerShare = if (safeShares > 0.0) newTtmRev / safeShares else snap.revenuePerShare
-            val newFcfPerShare = if (safeShares > 0.0) newTtmFcf / safeShares else snap.fcfPerShare
-            val newNetCashPerShare = if (safeShares > 0.0) (newCashOnHand - newLtDebt) / safeShares else snap.netCashPerShare
-            val newMarketCap = if (snap.currentPrice > 0.0 && safeShares > 0.0) snap.currentPrice * safeShares else snap.marketCap
+            val newRevPerShare = newTtmRev / safeShares
+            val newFcfPerShare = newTtmFcf / safeShares
+            val newNetCashPerShare = (newCashOnHand - newLtDebt) / safeShares
+            val newMarketCap = if (snap.currentPrice > 0.0) snap.currentPrice * safeShares else snap.marketCap
 
             val updatedSnap = snap.copy(
                 sharesOutstanding = newShares,
@@ -518,7 +511,7 @@ fun CalculatorScreen(
 
                                     // Moat-Quality Adjustment Details
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    Divider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
                                     Spacer(modifier = Modifier.height(10.dp))
                                     
                                     Row(
@@ -765,7 +758,7 @@ fun CalculatorScreen(
                                     }
 
                                     Spacer(modifier = Modifier.height(20.dp))
-                                    Divider(color = Color.White.copy(alpha = 0.06f))
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                                     Spacer(modifier = Modifier.height(16.dp))
 
                                     // --- SPLIT 2: stock purchase price split ---
@@ -919,7 +912,7 @@ fun CalculatorScreen(
                                         )
                                     }
 
-                                    Divider(color = BorderGray, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
+                                    HorizontalDivider(color = BorderGray, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
                                     Text("Hurdle & Discount Rates", fontSize = 12.sp, color = TealAccent, fontWeight = FontWeight.Bold)
 
                                     // Row 3: Rates
@@ -1021,7 +1014,7 @@ fun CalculatorScreen(
                                             }
                                         }
                                     }
-                                    Divider(color = BorderGray, thickness = 0.5.dp)
+                                    HorizontalDivider(color = BorderGray, thickness = 0.5.dp)
 
                                     if (!isEditingBaseline) {
                                         // --- READ-ONLY DISPLAY MODE ---
@@ -1096,13 +1089,13 @@ fun CalculatorScreen(
                                         BaselineEditRow("Shares outstanding", sharesInput, { sharesInput = it }, "M")
 
                                         // 3. TTM revenue (Editable)
-                                        BaselineEditRow("TTM revenue", ttmRevenueInput, { ttmRevenueInput = it }, "\$M")
+                                        BaselineEditRow("TTM revenue", ttmRevenueInput, { ttmRevenueInput = it }, "${'$'}M")
 
                                         // 4. Net income (Editable)
-                                        BaselineEditRow("Net income", ttmNetIncomeInput, { ttmNetIncomeInput = it }, "\$M")
+                                        BaselineEditRow("Net income", ttmNetIncomeInput, { ttmNetIncomeInput = it }, "${'$'}M")
 
                                         // 5. TTM free cash flow (Editable)
-                                        BaselineEditRow("TTM free cash flow", ttmFcfInput, { ttmFcfInput = it }, "\$M")
+                                        BaselineEditRow("TTM free cash flow", ttmFcfInput, { ttmFcfInput = it }, "${'$'}M")
 
                                         // 6. FCF per share (Calculated)
                                         CalculatedStatsRow("FCF per share", String.format(Locale.getDefault(), "$%.2f %s", liveFcfPerShare, tickerCurrency), "Auto: TTM FCF / Shares")

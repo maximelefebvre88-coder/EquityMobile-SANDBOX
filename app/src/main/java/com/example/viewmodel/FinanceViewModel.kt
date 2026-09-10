@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.domain.model.CalculatorSnapshot
+import com.example.domain.model.PortfolioSummary
 import com.example.domain.model.TradeEntity
 import com.example.domain.model.WatchlistTicker
 import com.example.domain.model.FmpSearchResponse
@@ -600,6 +601,20 @@ class FinanceViewModel(
         trades: List<TradeEntity>
     ): Double {
         return useCases.calculateEffectiveCostBasis(symbol, livePrice, manuallyEnteredCostBasis, trades)
+    }
+
+    fun calculatePortfolioSummary(
+        watchlist: List<WatchlistTicker>,
+        trades: List<TradeEntity>,
+        snapshots: Map<String, CalculatorSnapshot> = emptyMap(),
+        baseCurrency: String = "CAD"
+    ): PortfolioSummary {
+        return useCases.calculatePortfolioSummary(
+            watchlist = watchlist,
+            trades = trades,
+            snapshots = snapshots,
+            baseCurrency = baseCurrency
+        )
     }
 
     // Financial formulas
