@@ -373,15 +373,6 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
             )
         }
 
-        // 6. Total P&L
-        val totalPnL = remember(totalSharesHeld, effectiveCostBasis, currentLivePrice, totalPremiumCollected) {
-            if (totalSharesHeld > 0) {
-                (currentLivePrice - effectiveCostBasis) * totalSharesHeld
-            } else {
-                totalPremiumCollected
-            }
-        }
-
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -502,7 +493,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                     }
                 }
 
-                // Summary Row Cards (Total Shares, Premiums, Weighted Return, Cost basis, P&L)
+                // Summary Row Cards (Total Shares, Premiums, Weighted Return, Cost basis)
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -535,13 +526,6 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                        SummaryCard(
-                            title = "Total P&L (Unrealized Math Included)",
-                            value = String.format(Locale.getDefault(), "$%.2f %s", totalPnL, tickerCurrency),
-                            desc = "(Price - Cost basis) * shares + options premiums",
-                            modifier = Modifier.fillMaxWidth(),
-                            contentColor = if (totalPnL >= 0) EmeraldGreen else RedLoss
-                        )
                     }
                 }
 

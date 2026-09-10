@@ -437,7 +437,7 @@ fun IntelligenceScreen(
                 val verticalDiff = outerDiameter * 0.5f
                 val leftRightYOffset = verticalDiff * 0.35f
                 val centerYOffset = -verticalDiff * 0.65f
-                
+
                 // 1. Balance Sheet Score Gauge (Left - Green, tucked under)
                 Box(
                     modifier = Modifier
