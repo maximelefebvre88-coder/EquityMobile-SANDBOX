@@ -34,12 +34,18 @@ interface TickerDao {
 
     @Query("UPDATE watchlist_tickers SET displayOrder = :displayOrder WHERE symbol = :symbol")
     suspend fun updateDisplayOrder(symbol: String, displayOrder: Int)
+
+    @Query("DELETE FROM watchlist_tickers")
+    suspend fun deleteAllTickers()
 }
 
 @Dao
 interface TradeDao {
     @Query("SELECT * FROM trade_logs ORDER BY date DESC")
     fun getAllTrades(): Flow<List<TradeLogEntity>>
+
+    @Query("SELECT * FROM trade_logs ORDER BY date DESC")
+    suspend fun getAllTradesNonFlow(): List<TradeLogEntity>
 
     @Query("SELECT * FROM trade_logs WHERE ticker = :ticker ORDER BY date DESC")
     fun getTradesForTicker(ticker: String): Flow<List<TradeLogEntity>>
@@ -49,12 +55,18 @@ interface TradeDao {
 
     @Query("DELETE FROM trade_logs WHERE id = :id")
     suspend fun deleteTradeById(id: Int)
+
+    @Query("DELETE FROM trade_logs")
+    suspend fun deleteAllTrades()
 }
 
 @Dao
 interface CalculatorSnapshotDao {
     @Query("SELECT * FROM calculator_snapshots")
     fun getAllSnapshotsFlow(): Flow<List<CalculatorSnapshotEntity>>
+
+    @Query("SELECT * FROM calculator_snapshots")
+    suspend fun getAllSnapshotsNonFlow(): List<CalculatorSnapshotEntity>
 
     @Query("SELECT * FROM calculator_snapshots WHERE symbol = :symbol")
     suspend fun getSnapshot(symbol: String): CalculatorSnapshotEntity?
@@ -64,4 +76,10 @@ interface CalculatorSnapshotDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSnapshot(snapshot: CalculatorSnapshotEntity)
+
+    @Query("DELETE FROM calculator_snapshots WHERE symbol = :symbol")
+    suspend fun deleteSnapshot(symbol: String)
+
+    @Query("DELETE FROM calculator_snapshots")
+    suspend fun deleteAllSnapshots()
 }

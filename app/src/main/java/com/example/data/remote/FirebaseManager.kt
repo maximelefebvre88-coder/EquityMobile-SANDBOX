@@ -2,6 +2,7 @@ package com.example.data.remote
 
 import android.content.Context
 import android.util.Log
+import com.example.BuildConfig
 import com.example.data.CryptoManager
 import com.example.data.local.AppDatabase
 import com.example.data.local.CalculatorSnapshotEntity
@@ -11,11 +12,16 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
@@ -23,6 +29,7 @@ class FirebaseManager(private val context: Context) {
 
     private val cryptoManager = CryptoManager(context)
     private val db = AppDatabase.getDatabase(context)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     val isInitialized = MutableStateFlow(false)
     val authState = MutableStateFlow<FirebaseAuthState>(FirebaseAuthState.SignedOut)
@@ -30,6 +37,7 @@ class FirebaseManager(private val context: Context) {
 
     private var auth: FirebaseAuth? = null
     private var firestore: FirebaseFirestore? = null
+    private val listenerRegistrations = mutableListOf<ListenerRegistration>()
 
     init {
         trySetupFirebase()
@@ -75,10 +83,18 @@ class FirebaseManager(private val context: Context) {
                             email = user.email ?: "",
                             displayName = user.displayName ?: ""
                         )
+                        startRealtimeSync(user.uid)
                     } else {
                         authState.value = FirebaseAuthState.SignedOut
+                        stopRealtimeSync()
                     }
                 }
+
+                val initialUser = auth?.currentUser
+                if (initialUser != null) {
+                    startRealtimeSync(initialUser.uid)
+                }
+
                 Log.d("FirebaseManager", "Firebase successfully initialized.")
                 return true
             }
@@ -101,7 +117,7 @@ class FirebaseManager(private val context: Context) {
     fun getFirebaseApiKey(): String {
         val resVal = getStringResourceByName("google_api_key")
         if (resVal.isNotEmpty()) return resVal
-        val key = com.example.BuildConfig.FIREBASE_API_KEY
+        val key = BuildConfig.FIREBASE_API_KEY
         if (key.isNotEmpty() && key != "YOUR_FIREBASE_API_KEY_HERE") return key
         return cryptoManager.getFirebaseApiKey()
     }
@@ -109,7 +125,7 @@ class FirebaseManager(private val context: Context) {
     fun getFirebaseProjectId(): String {
         val resVal = getStringResourceByName("project_id")
         if (resVal.isNotEmpty()) return resVal
-        val projId = com.example.BuildConfig.FIREBASE_PROJECT_ID
+        val projId = BuildConfig.FIREBASE_PROJECT_ID
         if (projId.isNotEmpty() && projId != "YOUR_FIREBASE_PROJECT_ID_HERE") return projId
         return cryptoManager.getFirebaseProjectId()
     }
@@ -117,7 +133,7 @@ class FirebaseManager(private val context: Context) {
     fun getFirebaseAppId(): String {
         val resVal = getStringResourceByName("google_app_id")
         if (resVal.isNotEmpty()) return resVal
-        val appId = com.example.BuildConfig.FIREBASE_APP_ID
+        val appId = BuildConfig.FIREBASE_APP_ID
         if (appId.isNotEmpty() && appId != "YOUR_FIREBASE_APP_ID_HERE") return appId
         return cryptoManager.getFirebaseAppId()
     }
@@ -125,15 +141,13 @@ class FirebaseManager(private val context: Context) {
     fun getFirebaseAuthClientId(): String {
         val resVal = getStringResourceByName("default_web_client_id")
         if (resVal.isNotEmpty()) return resVal
-        val clientId = com.example.BuildConfig.FIREBASE_CLIENT_ID
+        val clientId = BuildConfig.FIREBASE_CLIENT_ID
         if (clientId.isNotEmpty() && clientId != "YOUR_FIREBASE_CLIENT_ID_HERE") return clientId
         return cryptoManager.getFirebaseAuthClientId()
     }
 
     fun saveFirebaseConfig(apiKey: String, projectId: String, appId: String, clientId: String) {
         cryptoManager.saveFirebaseConfig(apiKey, projectId, appId, clientId)
-        
-        // Re-initialize Firebase with new settings
         trySetupFirebase()
     }
 
@@ -160,7 +174,7 @@ class FirebaseManager(private val context: Context) {
                     displayName = user.displayName ?: ""
                 )
                 authState.value = userState
-                // Auto-sync after signing in
+                startRealtimeSync(user.uid)
                 syncDataAcrossDevices()
                 Result.success(user.email ?: "Success")
             } else {
@@ -172,11 +186,361 @@ class FirebaseManager(private val context: Context) {
     }
 
     fun signOut() {
+        stopRealtimeSync()
+        scope.launch {
+            try {
+                db.tickerDao().deleteAllTickers()
+                db.tradeDao().deleteAllTrades()
+                db.calculatorSnapshotDao().deleteAllSnapshots()
+            } catch (e: Exception) {
+                Log.e("FirebaseManager", "Error clearing local database on sign out", e)
+            }
+        }
         auth?.signOut()
         authState.value = FirebaseAuthState.SignedOut
     }
 
-    // Bidirectional Cloud Sync
+    private fun stopRealtimeSync() {
+        synchronized(listenerRegistrations) {
+            listenerRegistrations.forEach { it.remove() }
+            listenerRegistrations.clear()
+        }
+    }
+
+    private fun startRealtimeSync(uid: String) {
+        if (!isReady()) return
+        stopRealtimeSync()
+
+        try {
+            val userDoc = firestore!!.collection("users").document(uid)
+
+            // 1. Real-time Watchlist listener
+            val watchlistReg = userDoc.collection("watchlist")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e("FirebaseManager", "Watchlist real-time sync error: ${error.message}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        scope.launch {
+                            handleRemoteWatchlistSnapshot(uid, snapshot)
+                        }
+                    }
+                }
+
+            // 2. Real-time Trades listener
+            val tradesReg = userDoc.collection("trades")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e("FirebaseManager", "Trades real-time sync error: ${error.message}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        scope.launch {
+                            handleRemoteTradesSnapshot(uid, snapshot)
+                        }
+                    }
+                }
+
+            // 3. Real-time Snapshots listener
+            val snapshotsReg = userDoc.collection("snapshots")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e("FirebaseManager", "Snapshots real-time sync error: ${error.message}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        scope.launch {
+                            handleRemoteSnapshotsSnapshot(uid, snapshot)
+                        }
+                    }
+                }
+
+            // 4. Real-time Preferences listener
+            val prefReg = userDoc.collection("preferences").document("settings")
+                .addSnapshotListener { doc, error ->
+                    if (error != null) {
+                        Log.e("FirebaseManager", "Preferences real-time sync error: ${error.message}", error)
+                        return@addSnapshotListener
+                    }
+                    if (doc != null && doc.exists()) {
+                        scope.launch {
+                            handleRemotePreferences(doc)
+                        }
+                    }
+                }
+
+            synchronized(listenerRegistrations) {
+                listenerRegistrations.add(watchlistReg)
+                listenerRegistrations.add(tradesReg)
+                listenerRegistrations.add(snapshotsReg)
+                listenerRegistrations.add(prefReg)
+            }
+        } catch (e: Exception) {
+            Log.e("FirebaseManager", "Failed to register real-time Firestore listeners: ${e.message}", e)
+        }
+    }
+
+    private suspend fun handleRemoteWatchlistSnapshot(uid: String, snapshot: QuerySnapshot) {
+        val tickerDao = db.tickerDao()
+        val localTickers = tickerDao.getAllTickersNonFlow()
+
+        if (snapshot.isEmpty) {
+            // First-time sync: if cloud is empty but local has items, upload local items
+            if (localTickers.isNotEmpty()) {
+                val watchlistRef = firestore!!.collection("users").document(uid).collection("watchlist")
+                for (local in localTickers) {
+                    val data = hashMapOf(
+                        "symbol" to local.symbol,
+                        "companyName" to local.companyName,
+                        "livePrice" to local.livePrice,
+                        "lastFetched" to local.lastFetched,
+                        "manuallyEnteredCostBasis" to local.manuallyEnteredCostBasis,
+                        "targetPrice" to local.targetPrice,
+                        "logoUrl" to local.logoUrl,
+                        "displayOrder" to local.displayOrder,
+                        "changePercent" to local.changePercent
+                    )
+                    watchlistRef.document(local.symbol).set(data, SetOptions.merge())
+                }
+            }
+            return
+        }
+
+        val remoteSymbols = snapshot.documents.map { it.id.uppercase().trim() }.toSet()
+
+        // 1. Insert or update remote items locally
+        for (remoteDoc in snapshot.documents) {
+            val symbol = remoteDoc.id.uppercase().trim()
+            val local = localTickers.find { it.symbol.equals(symbol, ignoreCase = true) }
+
+            val companyName = remoteDoc.getString("companyName") ?: symbol
+            val livePrice = remoteDoc.getDouble("livePrice") ?: 0.0
+            val lastFetched = remoteDoc.getLong("lastFetched") ?: 0L
+            val manuallyEnteredCostBasis = remoteDoc.getDouble("manuallyEnteredCostBasis")
+            val targetPrice = remoteDoc.getDouble("targetPrice")
+            val logoUrl = remoteDoc.getString("logoUrl")
+            val displayOrder = remoteDoc.getLong("displayOrder")?.toInt() ?: 0
+            val changePercent = remoteDoc.getDouble("changePercent")
+
+            if (local == null) {
+                val newEntity = WatchlistTickerEntity(
+                    symbol = symbol,
+                    companyName = companyName,
+                    livePrice = livePrice,
+                    lastFetched = lastFetched,
+                    manuallyEnteredCostBasis = manuallyEnteredCostBasis,
+                    targetPrice = targetPrice,
+                    logoUrl = logoUrl,
+                    displayOrder = displayOrder,
+                    changePercent = changePercent
+                )
+                tickerDao.insert(newEntity)
+            } else {
+                val priceToUse = if (livePrice > 0.0) livePrice else local.livePrice
+                val timeToUse = if (lastFetched > 0L) lastFetched else local.lastFetched
+                val nameToUse = if (companyName.isNotEmpty() && companyName != symbol) companyName else local.companyName
+                val logoToUse = logoUrl ?: local.logoUrl
+                val changeToUse = changePercent ?: local.changePercent
+
+                if (local.manuallyEnteredCostBasis != manuallyEnteredCostBasis) {
+                    tickerDao.updateCostBasis(symbol, manuallyEnteredCostBasis)
+                }
+                if (local.targetPrice != targetPrice) {
+                    tickerDao.updateTargetPrice(symbol, targetPrice)
+                }
+                if (local.displayOrder != displayOrder) {
+                    tickerDao.updateDisplayOrder(symbol, displayOrder)
+                }
+                if (local.livePrice != priceToUse || local.companyName != nameToUse || local.lastFetched != timeToUse || local.logoUrl != logoToUse || local.changePercent != changeToUse) {
+                    tickerDao.updatePrice(symbol, priceToUse, nameToUse, timeToUse, logoToUse, changeToUse)
+                }
+            }
+        }
+
+        // 2. Remove local tickers deleted remotely
+        for (local in localTickers) {
+            if (!remoteSymbols.contains(local.symbol.uppercase().trim())) {
+                tickerDao.delete(local.symbol)
+            }
+        }
+    }
+
+    private suspend fun handleRemoteTradesSnapshot(uid: String, snapshot: QuerySnapshot) {
+        val tradeDao = db.tradeDao()
+        val localTrades = tradeDao.getAllTradesNonFlow()
+
+        if (snapshot.isEmpty) {
+            if (localTrades.isNotEmpty()) {
+                val tradesRef = firestore!!.collection("users").document(uid).collection("trades")
+                for (local in localTrades) {
+                    val data = hashMapOf(
+                        "id" to local.id,
+                        "ticker" to local.ticker,
+                        "tradeType" to local.tradeType,
+                        "date" to local.date,
+                        "contracts" to local.contracts,
+                        "strikePrice" to local.strikePrice,
+                        "premiumPerShare" to local.premiumPerShare,
+                        "expiryDate" to local.expiryDate,
+                        "fees" to local.fees,
+                        "netCreditDebit" to local.netCreditDebit,
+                        "annualizedReturn" to local.annualizedReturn,
+                        "fcfYield" to local.fcfYield,
+                        "isClosed" to local.isClosed,
+                        "closePremium" to local.closePremium,
+                        "closeFees" to local.closeFees,
+                        "closeDate" to local.closeDate,
+                        "manualOutcome" to local.manualOutcome
+                    )
+                    tradesRef.document(local.id.toString()).set(data, SetOptions.merge())
+                }
+            }
+            return
+        }
+
+        val remoteIds = snapshot.documents.mapNotNull { it.id.toIntOrNull() }.toSet()
+
+        for (remoteDoc in snapshot.documents) {
+            val remoteId = remoteDoc.id.toIntOrNull() ?: continue
+            val entity = TradeLogEntity(
+                id = remoteId,
+                ticker = remoteDoc.getString("ticker") ?: "",
+                tradeType = remoteDoc.getString("tradeType") ?: "",
+                date = remoteDoc.getLong("date") ?: 0L,
+                contracts = remoteDoc.getLong("contracts")?.toInt() ?: 1,
+                strikePrice = remoteDoc.getDouble("strikePrice") ?: 0.0,
+                premiumPerShare = remoteDoc.getDouble("premiumPerShare") ?: 0.0,
+                expiryDate = remoteDoc.getLong("expiryDate"),
+                fees = remoteDoc.getDouble("fees") ?: 0.0,
+                netCreditDebit = remoteDoc.getDouble("netCreditDebit") ?: 0.0,
+                annualizedReturn = remoteDoc.getDouble("annualizedReturn") ?: 0.0,
+                fcfYield = remoteDoc.getDouble("fcfYield") ?: 0.0,
+                isClosed = remoteDoc.getBoolean("isClosed") ?: false,
+                closePremium = remoteDoc.getDouble("closePremium") ?: 0.0,
+                closeFees = remoteDoc.getDouble("closeFees") ?: 0.0,
+                closeDate = remoteDoc.getLong("closeDate"),
+                manualOutcome = remoteDoc.getString("manualOutcome") ?: ""
+            )
+            tradeDao.insertTrade(entity)
+        }
+
+        for (local in localTrades) {
+            if (!remoteIds.contains(local.id)) {
+                tradeDao.deleteTradeById(local.id)
+            }
+        }
+    }
+
+    private suspend fun handleRemoteSnapshotsSnapshot(uid: String, snapshot: QuerySnapshot) {
+        val snapshotDao = db.calculatorSnapshotDao()
+        val localSnapshots = snapshotDao.getAllSnapshotsNonFlow()
+
+        if (snapshot.isEmpty) {
+            if (localSnapshots.isNotEmpty()) {
+                val snapshotsRef = firestore!!.collection("users").document(uid).collection("snapshots")
+                for (local in localSnapshots) {
+                    val data = hashMapOf(
+                        "symbol" to local.symbol,
+                        "currentPrice" to local.currentPrice,
+                        "fcfPerShare" to local.fcfPerShare,
+                        "revenuePerShare" to local.revenuePerShare,
+                        "fcfMarginPercent" to local.fcfMarginPercent,
+                        "roicPercent" to local.roicPercent,
+                        "netCashPerShare" to local.netCashPerShare,
+                        "sharesOutstanding" to local.sharesOutstanding,
+                        "marketCap" to local.marketCap,
+                        "fcfGrowthRate" to local.fcfGrowthRate,
+                        "equityGrowthRate" to local.equityGrowthRate,
+                        "fundamentalGrowthRate" to local.fundamentalGrowthRate,
+                        "historicalFcfMargin" to local.historicalFcfMargin,
+                        "riskFreeRate" to local.riskFreeRate,
+                        "riskPremium" to local.riskPremium,
+                        "terminalGrowthRate" to local.terminalGrowthRate,
+                        "highGrowthYears" to local.highGrowthYears,
+                        "historicalFcfYield" to local.historicalFcfYield,
+                        "lastFetched" to local.lastFetched,
+                        "ttmRevenue" to local.ttmRevenue,
+                        "ttmFcf" to local.ttmFcf,
+                        "cashOnHand" to local.cashOnHand,
+                        "ltDebt" to local.ltDebt,
+                        "interestCoverage" to local.interestCoverage,
+                        "ttmNetIncome" to local.ttmNetIncome,
+                        "checkedQualitativeTitles" to local.checkedQualitativeTitles
+                    )
+                    snapshotsRef.document(local.symbol).set(data, SetOptions.merge())
+                }
+            }
+            return
+        }
+
+        val remoteSymbols = snapshot.documents.map { it.id.uppercase().trim() }.toSet()
+
+        for (remoteDoc in snapshot.documents) {
+            val symbol = remoteDoc.id.uppercase().trim()
+            val entity = CalculatorSnapshotEntity(
+                symbol = symbol,
+                currentPrice = remoteDoc.getDouble("currentPrice") ?: 0.0,
+                fcfPerShare = remoteDoc.getDouble("fcfPerShare") ?: 0.0,
+                revenuePerShare = remoteDoc.getDouble("revenuePerShare") ?: 0.0,
+                fcfMarginPercent = remoteDoc.getDouble("fcfMarginPercent") ?: 0.0,
+                roicPercent = remoteDoc.getDouble("roicPercent") ?: 0.0,
+                netCashPerShare = remoteDoc.getDouble("netCashPerShare") ?: 0.0,
+                sharesOutstanding = remoteDoc.getDouble("sharesOutstanding") ?: 0.0,
+                marketCap = remoteDoc.getDouble("marketCap") ?: 0.0,
+                fcfGrowthRate = remoteDoc.getDouble("fcfGrowthRate") ?: 0.0,
+                equityGrowthRate = remoteDoc.getDouble("equityGrowthRate") ?: 0.0,
+                fundamentalGrowthRate = remoteDoc.getDouble("fundamentalGrowthRate") ?: 0.0,
+                historicalFcfMargin = remoteDoc.getDouble("historicalFcfMargin") ?: 0.0,
+                riskFreeRate = remoteDoc.getDouble("riskFreeRate") ?: 0.0,
+                riskPremium = remoteDoc.getDouble("riskPremium") ?: 0.0,
+                terminalGrowthRate = remoteDoc.getDouble("terminalGrowthRate") ?: 0.0,
+                highGrowthYears = remoteDoc.getLong("highGrowthYears")?.toInt() ?: 10,
+                historicalFcfYield = remoteDoc.getDouble("historicalFcfYield") ?: 0.0,
+                lastFetched = remoteDoc.getLong("lastFetched") ?: 0L,
+                ttmRevenue = remoteDoc.getDouble("ttmRevenue") ?: 0.0,
+                ttmFcf = remoteDoc.getDouble("ttmFcf") ?: 0.0,
+                cashOnHand = remoteDoc.getDouble("cashOnHand") ?: 0.0,
+                ltDebt = remoteDoc.getDouble("ltDebt") ?: 0.0,
+                interestCoverage = remoteDoc.getDouble("interestCoverage") ?: 0.0,
+                ttmNetIncome = remoteDoc.getDouble("ttmNetIncome") ?: 0.0,
+                checkedQualitativeTitles = remoteDoc.getString("checkedQualitativeTitles") ?: ""
+            )
+            snapshotDao.insertSnapshot(entity)
+        }
+
+        for (local in localSnapshots) {
+            if (!remoteSymbols.contains(local.symbol.uppercase().trim())) {
+                snapshotDao.deleteSnapshot(local.symbol)
+            }
+        }
+    }
+
+    private fun handleRemotePreferences(remoteDoc: DocumentSnapshot) {
+        val remoteCurrency = remoteDoc.getString("defaultCurrency")
+        val remoteRiskFree = remoteDoc.getDouble("riskFreeRate")?.toFloat()
+        val remoteRiskPremium = remoteDoc.getDouble("riskPremium")?.toFloat()
+        val remoteApiKey = remoteDoc.getString("fmpApiKey")
+        val remoteGeminiApiKey = remoteDoc.getString("geminiApiKey")
+
+        if (remoteCurrency != null && remoteCurrency != cryptoManager.getCurrency()) {
+            cryptoManager.saveCurrency(remoteCurrency)
+        }
+        if (remoteRiskFree != null && remoteRiskFree != cryptoManager.getRiskFreeRate()) {
+            cryptoManager.saveRiskFreeRate(remoteRiskFree)
+        }
+        if (remoteRiskPremium != null && remoteRiskPremium != cryptoManager.getRiskPremium()) {
+            cryptoManager.saveRiskPremium(remoteRiskPremium)
+        }
+        if (!remoteApiKey.isNullOrEmpty() && cryptoManager.getApiKey().isEmpty()) {
+            cryptoManager.saveApiKey(remoteApiKey)
+        }
+        if (!remoteGeminiApiKey.isNullOrEmpty() && cryptoManager.getGeminiApiKey().isEmpty()) {
+            cryptoManager.saveGeminiApiKey(remoteGeminiApiKey)
+        }
+    }
+
+    // Manual Bidirectional Cloud Sync
     suspend fun syncDataAcrossDevices(): Result<Unit> = withContext(Dispatchers.IO) {
         if (!isReady() || auth?.currentUser == null) {
             return@withContext Result.failure(Exception("User is not signed in or Firebase is not ready."))
@@ -186,17 +550,27 @@ class FirebaseManager(private val context: Context) {
         syncState.value = FirebaseSyncState.Syncing
 
         try {
-            // 1. Sync Watchlist
-            syncWatchlist(uid)
+            val watchlistSnapshot = firestore!!.collection("users").document(uid).collection("watchlist").get().await()
+            handleRemoteWatchlistSnapshot(uid, watchlistSnapshot)
 
-            // 2. Sync Trade Logs
-            syncTrades(uid)
+            val tradesSnapshot = firestore!!.collection("users").document(uid).collection("trades").get().await()
+            handleRemoteTradesSnapshot(uid, tradesSnapshot)
 
-            // 3. Sync Calculator Snapshots
-            syncSnapshots(uid)
+            val snapshotsSnapshot = firestore!!.collection("users").document(uid).collection("snapshots").get().await()
+            handleRemoteSnapshotsSnapshot(uid, snapshotsSnapshot)
 
-            // 4. Sync Preferences/Settings
-            syncPreferences(uid)
+            val prefSnapshot = firestore!!.collection("users").document(uid).collection("preferences").document("settings").get().await()
+            if (prefSnapshot.exists()) {
+                handleRemotePreferences(prefSnapshot)
+            }
+
+            syncPreferencesSingle(
+                currency = cryptoManager.getCurrency(),
+                riskFreeRate = cryptoManager.getRiskFreeRate(),
+                riskPremium = cryptoManager.getRiskPremium(),
+                apiKey = cryptoManager.getApiKey(),
+                geminiApiKey = cryptoManager.getGeminiApiKey()
+            )
 
             syncState.value = FirebaseSyncState.Success
             Result.success(Unit)
@@ -207,7 +581,7 @@ class FirebaseManager(private val context: Context) {
                     msg.contains("permission denied", ignoreCase = true) ||
                     msg.contains("PERMISSION_DENIED", ignoreCase = true) ||
                     msg.contains("insufficient permissions", ignoreCase = true)
-            
+
             val displayMessage = if (isPermissionDenied) {
                 "permission-denied: Cloud Firestore security rules are blocking synchronization. Please configure your Firestore security rules in the Firebase console."
             } else {
@@ -218,243 +592,24 @@ class FirebaseManager(private val context: Context) {
         }
     }
 
-    private suspend fun syncWatchlist(uid: String) {
-        val tickerDao = db.tickerDao()
-        val localTickers = tickerDao.getAllTickersNonFlow()
-        val watchlistRef = firestore!!.collection("users").document(uid).collection("watchlist")
-
-        // Retrieve remote watchlist
-        val remoteSnapshot = watchlistRef.get().await()
-        val remoteMap = remoteSnapshot.documents.associateBy { it.id }
-
-        // Send local to cloud
-        for (local in localTickers) {
-            val data = hashMapOf(
-                "symbol" to local.symbol,
-                "companyName" to local.companyName,
-                "livePrice" to local.livePrice,
-                "lastFetched" to local.lastFetched,
-                "manuallyEnteredCostBasis" to local.manuallyEnteredCostBasis,
-                "targetPrice" to local.targetPrice,
-                "logoUrl" to local.logoUrl,
-                "displayOrder" to local.displayOrder
-            )
-            watchlistRef.document(local.symbol).set(data, SetOptions.merge()).await()
-        }
-
-        // Pull new remote items to local
-        for (remoteDoc in remoteSnapshot.documents) {
-            val symbol = remoteDoc.id
-            val existsLocally = localTickers.any { it.symbol == symbol }
-            if (!existsLocally) {
-                val ticker = WatchlistTickerEntity(
-                    symbol = symbol,
-                    companyName = remoteDoc.getString("companyName") ?: symbol,
-                    livePrice = remoteDoc.getDouble("livePrice") ?: 0.0,
-                    lastFetched = remoteDoc.getLong("lastFetched") ?: 0L,
-                    manuallyEnteredCostBasis = remoteDoc.getDouble("manuallyEnteredCostBasis"),
-                    targetPrice = remoteDoc.getDouble("targetPrice"),
-                    logoUrl = remoteDoc.getString("logoUrl"),
-                    displayOrder = remoteDoc.getLong("displayOrder")?.toInt() ?: 0,
-                    changePercent = remoteDoc.getDouble("changePercent")
-                )
-                tickerDao.insert(ticker)
-            } else {
-                // Merge manuallyEnteredCostBasis, targetPrice, and displayOrder if remote is more recent or filled
-                val local = localTickers.find { it.symbol == symbol }
-                if (local != null) {
-                    val remoteCostBasis = remoteDoc.getDouble("manuallyEnteredCostBasis")
-                    if (remoteCostBasis != null && remoteCostBasis != local.manuallyEnteredCostBasis) {
-                        tickerDao.updateCostBasis(symbol, remoteCostBasis)
-                    }
-                    val remoteTargetPrice = remoteDoc.getDouble("targetPrice")
-                    if (remoteTargetPrice != null && remoteTargetPrice != local.targetPrice) {
-                        tickerDao.updateTargetPrice(symbol, remoteTargetPrice)
-                    }
-                }
-            }
-        }
-    }
-
-    private suspend fun syncTrades(uid: String) {
-        val tradeDao = db.tradeDao()
-        val trades = tradeDao.getAllTrades().first()
-        val tradesRef = firestore!!.collection("users").document(uid).collection("trades")
-
-        // Upload local trades to cloud
-        for (local in trades) {
-            val data = hashMapOf(
-                "id" to local.id,
-                "ticker" to local.ticker,
-                "tradeType" to local.tradeType,
-                "date" to local.date,
-                "contracts" to local.contracts,
-                "strikePrice" to local.strikePrice,
-                "premiumPerShare" to local.premiumPerShare,
-                "expiryDate" to local.expiryDate,
-                "fees" to local.fees,
-                "netCreditDebit" to local.netCreditDebit,
-                "annualizedReturn" to local.annualizedReturn,
-                "fcfYield" to local.fcfYield,
-                "isClosed" to local.isClosed,
-                "closePremium" to local.closePremium,
-                "closeFees" to local.closeFees,
-                "closeDate" to local.closeDate,
-                "manualOutcome" to local.manualOutcome
-            )
-            // Use local.id as document name so they sync properly
-            tradesRef.document(local.id.toString()).set(data, SetOptions.merge()).await()
-        }
-
-        // Pull remote trades to local
-        val remoteSnapshot = tradesRef.get().await()
-        for (remoteDoc in remoteSnapshot.documents) {
-            val remoteIdStr = remoteDoc.id
-            val remoteId = remoteIdStr.toIntOrNull() ?: continue
-            val existsLocally = trades.any { it.id == remoteId }
-            if (!existsLocally) {
-                val trade = TradeLogEntity(
-                    id = remoteId,
-                    ticker = remoteDoc.getString("ticker") ?: "",
-                    tradeType = remoteDoc.getString("tradeType") ?: "",
-                    date = remoteDoc.getLong("date") ?: 0L,
-                    contracts = remoteDoc.getLong("contracts")?.toInt() ?: 1,
-                    strikePrice = remoteDoc.getDouble("strikePrice") ?: 0.0,
-                    premiumPerShare = remoteDoc.getDouble("premiumPerShare") ?: 0.0,
-                    expiryDate = remoteDoc.getLong("expiryDate"),
-                    fees = remoteDoc.getDouble("fees") ?: 0.0,
-                    netCreditDebit = remoteDoc.getDouble("netCreditDebit") ?: 0.0,
-                    annualizedReturn = remoteDoc.getDouble("annualizedReturn") ?: 0.0,
-                    fcfYield = remoteDoc.getDouble("fcfYield") ?: 0.0,
-                    isClosed = remoteDoc.getBoolean("isClosed") ?: false,
-                    closePremium = remoteDoc.getDouble("closePremium") ?: 0.0,
-                    closeFees = remoteDoc.getDouble("closeFees") ?: 0.0,
-                    closeDate = remoteDoc.getLong("closeDate"),
-                    manualOutcome = remoteDoc.getString("manualOutcome") ?: ""
-                )
-                tradeDao.insertTrade(trade)
-            }
-        }
-    }
-
-    private suspend fun syncSnapshots(uid: String) {
-        val snapshotDao = db.calculatorSnapshotDao()
-        val localSnapshots = snapshotDao.getAllSnapshotsFlow().first()
-        val snapshotsRef = firestore!!.collection("users").document(uid).collection("snapshots")
-
-        // Upload local to cloud
-        for (local in localSnapshots) {
-            val data = hashMapOf(
-                "symbol" to local.symbol,
-                "currentPrice" to local.currentPrice,
-                "fcfPerShare" to local.fcfPerShare,
-                "revenuePerShare" to local.revenuePerShare,
-                "fcfMarginPercent" to local.fcfMarginPercent,
-                "roicPercent" to local.roicPercent,
-                "netCashPerShare" to local.netCashPerShare,
-                "sharesOutstanding" to local.sharesOutstanding,
-                "marketCap" to local.marketCap,
-                "fcfGrowthRate" to local.fcfGrowthRate,
-                "equityGrowthRate" to local.equityGrowthRate,
-                "fundamentalGrowthRate" to local.fundamentalGrowthRate,
-                "historicalFcfMargin" to local.historicalFcfMargin,
-                "riskFreeRate" to local.riskFreeRate,
-                "riskPremium" to local.riskPremium,
-                "terminalGrowthRate" to local.terminalGrowthRate,
-                "highGrowthYears" to local.highGrowthYears,
-                "historicalFcfYield" to local.historicalFcfYield,
-                "lastFetched" to local.lastFetched,
-                "ttmRevenue" to local.ttmRevenue,
-                "ttmFcf" to local.ttmFcf,
-                "cashOnHand" to local.cashOnHand,
-                "ltDebt" to local.ltDebt,
-                "interestCoverage" to local.interestCoverage,
-                "ttmNetIncome" to local.ttmNetIncome,
-                "checkedQualitativeTitles" to local.checkedQualitativeTitles
-            )
-            snapshotsRef.document(local.symbol).set(data, SetOptions.merge()).await()
-        }
-
-        // Pull remote to local
-        val remoteSnapshot = snapshotsRef.get().await()
-        for (remoteDoc in remoteSnapshot.documents) {
-            val symbol = remoteDoc.id
-            val existsLocally = localSnapshots.any { it.symbol == symbol }
-            if (!existsLocally) {
-                val entity = CalculatorSnapshotEntity(
-                    symbol = symbol,
-                    currentPrice = remoteDoc.getDouble("currentPrice") ?: 0.0,
-                    fcfPerShare = remoteDoc.getDouble("fcfPerShare") ?: 0.0,
-                    revenuePerShare = remoteDoc.getDouble("revenuePerShare") ?: 0.0,
-                    fcfMarginPercent = remoteDoc.getDouble("fcfMarginPercent") ?: 0.0,
-                    roicPercent = remoteDoc.getDouble("roicPercent") ?: 0.0,
-                    netCashPerShare = remoteDoc.getDouble("netCashPerShare") ?: 0.0,
-                    sharesOutstanding = remoteDoc.getDouble("sharesOutstanding") ?: 0.0,
-                    marketCap = remoteDoc.getDouble("marketCap") ?: 0.0,
-                    fcfGrowthRate = remoteDoc.getDouble("fcfGrowthRate") ?: 0.0,
-                    equityGrowthRate = remoteDoc.getDouble("equityGrowthRate") ?: 0.0,
-                    fundamentalGrowthRate = remoteDoc.getDouble("fundamentalGrowthRate") ?: 0.0,
-                    historicalFcfMargin = remoteDoc.getDouble("historicalFcfMargin") ?: 0.0,
-                    riskFreeRate = remoteDoc.getDouble("riskFreeRate") ?: 0.0,
-                    riskPremium = remoteDoc.getDouble("riskPremium") ?: 0.0,
-                    terminalGrowthRate = remoteDoc.getDouble("terminalGrowthRate") ?: 0.0,
-                    highGrowthYears = remoteDoc.getLong("highGrowthYears")?.toInt() ?: 10,
-                    historicalFcfYield = remoteDoc.getDouble("historicalFcfYield") ?: 0.0,
-                    lastFetched = remoteDoc.getLong("lastFetched") ?: 0L,
-                    ttmRevenue = remoteDoc.getDouble("ttmRevenue") ?: 0.0,
-                    ttmFcf = remoteDoc.getDouble("ttmFcf") ?: 0.0,
-                    cashOnHand = remoteDoc.getDouble("cashOnHand") ?: 0.0,
-                    ltDebt = remoteDoc.getDouble("ltDebt") ?: 0.0,
-                    interestCoverage = remoteDoc.getDouble("interestCoverage") ?: 0.0,
-                    ttmNetIncome = remoteDoc.getDouble("ttmNetIncome") ?: 0.0,
-                    checkedQualitativeTitles = remoteDoc.getString("checkedQualitativeTitles") ?: ""
-                )
-                snapshotDao.insertSnapshot(entity)
-            }
-        }
-    }
-
-    private suspend fun syncPreferences(uid: String) {
-        val prefRef = firestore!!.collection("users").document(uid).collection("preferences").document("settings")
-
-        // Retrieve remote preferences
-        val remoteSnapshot = prefRef.get().await()
-        if (remoteSnapshot.exists()) {
-            val remoteCurrency = remoteSnapshot.getString("defaultCurrency")
-            val remoteRiskFree = remoteSnapshot.getDouble("riskFreeRate")?.toFloat()
-            val remoteRiskPremium = remoteSnapshot.getDouble("riskPremium")?.toFloat()
-            val remoteApiKey = remoteSnapshot.getString("fmpApiKey")
-            val remoteGeminiApiKey = remoteSnapshot.getString("geminiApiKey")
-
-            if (remoteCurrency != null) cryptoManager.saveCurrency(remoteCurrency)
-            if (remoteRiskFree != null) cryptoManager.saveRiskFreeRate(remoteRiskFree)
-            if (remoteRiskPremium != null) cryptoManager.saveRiskPremium(remoteRiskPremium)
-            if (remoteApiKey != null && remoteApiKey.isNotEmpty() && cryptoManager.getApiKey().isEmpty()) {
-                cryptoManager.saveApiKey(remoteApiKey)
-            }
-            if (remoteGeminiApiKey != null && remoteGeminiApiKey.isNotEmpty() && cryptoManager.getGeminiApiKey().isEmpty()) {
-                cryptoManager.saveGeminiApiKey(remoteGeminiApiKey)
-            }
-        }
-
-        // Upload local preferences to cloud
-        val localData = hashMapOf(
-            "defaultCurrency" to cryptoManager.getCurrency(),
-            "riskFreeRate" to cryptoManager.getRiskFreeRate(),
-            "riskPremium" to cryptoManager.getRiskPremium(),
-            "fmpApiKey" to cryptoManager.getApiKey(),
-            "geminiApiKey" to cryptoManager.getGeminiApiKey()
-        )
-        prefRef.set(localData, SetOptions.merge()).await()
-    }
-
     // Instant local changes upload (Write-Through Sync)
     fun syncWatchlistSingle(ticker: WatchlistTickerEntity) {
         val uid = getUserId() ?: return
         if (!isReady()) return
+        val data = hashMapOf(
+            "symbol" to ticker.symbol,
+            "companyName" to ticker.companyName,
+            "livePrice" to ticker.livePrice,
+            "lastFetched" to ticker.lastFetched,
+            "manuallyEnteredCostBasis" to ticker.manuallyEnteredCostBasis,
+            "targetPrice" to ticker.targetPrice,
+            "logoUrl" to ticker.logoUrl,
+            "displayOrder" to ticker.displayOrder,
+            "changePercent" to ticker.changePercent
+        )
         firestore!!.collection("users").document(uid).collection("watchlist")
             .document(ticker.symbol)
-            .set(ticker, SetOptions.merge())
+            .set(data, SetOptions.merge())
     }
 
     fun removeWatchlistSingle(symbol: String) {
@@ -468,9 +623,28 @@ class FirebaseManager(private val context: Context) {
     fun syncTradeSingle(trade: TradeLogEntity) {
         val uid = getUserId() ?: return
         if (!isReady()) return
+        val data = hashMapOf(
+            "id" to trade.id,
+            "ticker" to trade.ticker,
+            "tradeType" to trade.tradeType,
+            "date" to trade.date,
+            "contracts" to trade.contracts,
+            "strikePrice" to trade.strikePrice,
+            "premiumPerShare" to trade.premiumPerShare,
+            "expiryDate" to trade.expiryDate,
+            "fees" to trade.fees,
+            "netCreditDebit" to trade.netCreditDebit,
+            "annualizedReturn" to trade.annualizedReturn,
+            "fcfYield" to trade.fcfYield,
+            "isClosed" to trade.isClosed,
+            "closePremium" to trade.closePremium,
+            "closeFees" to trade.closeFees,
+            "closeDate" to trade.closeDate,
+            "manualOutcome" to trade.manualOutcome
+        )
         firestore!!.collection("users").document(uid).collection("trades")
             .document(trade.id.toString())
-            .set(trade, SetOptions.merge())
+            .set(data, SetOptions.merge())
     }
 
     fun removeTradeSingle(id: Int) {
@@ -484,9 +658,37 @@ class FirebaseManager(private val context: Context) {
     fun syncSnapshotSingle(snapshot: CalculatorSnapshotEntity) {
         val uid = getUserId() ?: return
         if (!isReady()) return
+        val data = hashMapOf(
+            "symbol" to snapshot.symbol,
+            "currentPrice" to snapshot.currentPrice,
+            "fcfPerShare" to snapshot.fcfPerShare,
+            "revenuePerShare" to snapshot.revenuePerShare,
+            "fcfMarginPercent" to snapshot.fcfMarginPercent,
+            "roicPercent" to snapshot.roicPercent,
+            "netCashPerShare" to snapshot.netCashPerShare,
+            "sharesOutstanding" to snapshot.sharesOutstanding,
+            "marketCap" to snapshot.marketCap,
+            "fcfGrowthRate" to snapshot.fcfGrowthRate,
+            "equityGrowthRate" to snapshot.equityGrowthRate,
+            "fundamentalGrowthRate" to snapshot.fundamentalGrowthRate,
+            "historicalFcfMargin" to snapshot.historicalFcfMargin,
+            "riskFreeRate" to snapshot.riskFreeRate,
+            "riskPremium" to snapshot.riskPremium,
+            "terminalGrowthRate" to snapshot.terminalGrowthRate,
+            "highGrowthYears" to snapshot.highGrowthYears,
+            "historicalFcfYield" to snapshot.historicalFcfYield,
+            "lastFetched" to snapshot.lastFetched,
+            "ttmRevenue" to snapshot.ttmRevenue,
+            "ttmFcf" to snapshot.ttmFcf,
+            "cashOnHand" to snapshot.cashOnHand,
+            "ltDebt" to snapshot.ltDebt,
+            "interestCoverage" to snapshot.interestCoverage,
+            "ttmNetIncome" to snapshot.ttmNetIncome,
+            "checkedQualitativeTitles" to snapshot.checkedQualitativeTitles
+        )
         firestore!!.collection("users").document(uid).collection("snapshots")
             .document(snapshot.symbol)
-            .set(snapshot, SetOptions.merge())
+            .set(data, SetOptions.merge())
     }
 
     fun syncPreferencesSingle(currency: String, riskFreeRate: Float, riskPremium: Float, apiKey: String, geminiApiKey: String) {
