@@ -379,6 +379,7 @@ class FirebaseManager(private val context: Context) {
             if (localTrades.isNotEmpty()) {
                 val tradesRef = firestore!!.collection("users").document(uid).collection("trades")
                 for (local in localTrades) {
+                    if (local.id <= 0) continue
                     val data = hashMapOf(
                         "id" to local.id,
                         "ticker" to local.ticker,
@@ -404,10 +405,15 @@ class FirebaseManager(private val context: Context) {
             return
         }
 
-        val remoteIds = snapshot.documents.mapNotNull { it.id.toIntOrNull() }.toSet()
+        val remoteIds = snapshot.documents.mapNotNull { it.id.toIntOrNull() }.filter { it > 0 }.toSet()
 
         for (remoteDoc in snapshot.documents) {
             val remoteId = remoteDoc.id.toIntOrNull() ?: continue
+            if (remoteId <= 0) {
+                // Delete legacy/corrupt "0" doc from Firestore
+                firestore?.collection("users")?.document(uid)?.collection("trades")?.document(remoteDoc.id)?.delete()
+                continue
+            }
             val entity = TradeLogEntity(
                 id = remoteId,
                 ticker = remoteDoc.getString("ticker") ?: "",
@@ -628,7 +634,7 @@ class FirebaseManager(private val context: Context) {
 
     fun syncTradeSingle(trade: TradeLogEntity) {
         val uid = getUserId() ?: return
-        if (!isReady()) return
+        if (!isReady() || trade.id <= 0) return
         val data = hashMapOf(
             "id" to trade.id,
             "ticker" to trade.ticker,
@@ -655,7 +661,7 @@ class FirebaseManager(private val context: Context) {
 
     fun removeTradeSingle(id: Int) {
         val uid = getUserId() ?: return
-        if (!isReady()) return
+        if (!isReady() || id <= 0) return
         firestore!!.collection("users").document(uid).collection("trades")
             .document(id.toString())
             .delete()

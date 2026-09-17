@@ -57,7 +57,7 @@ interface TradeDao {
     fun getTradesForTicker(ticker: String): Flow<List<TradeLogEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTrade(trade: TradeLogEntity)
+    suspend fun insertTrade(trade: TradeLogEntity): Long
 
     @Query("DELETE FROM trade_logs WHERE id = :id")
     suspend fun deleteTradeById(id: Int)

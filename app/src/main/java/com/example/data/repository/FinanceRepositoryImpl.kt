@@ -364,12 +364,17 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
 
     override suspend fun insertTrade(trade: TradeEntity) = withContext(Dispatchers.IO) {
         val entity = trade.toEntity()
-        tradeDao.insertTrade(entity)
+        val insertedId = tradeDao.insertTrade(entity)
+        val syncedEntity = if (entity.id == 0) {
+            entity.copy(id = insertedId.toInt())
+        } else {
+            entity
+        }
 
         // Sync with Firebase
-        val firebaseManager = (context.applicationContext as? com.example.EquityIQApplication)?.container?.firebaseManager
+        val firebaseManager = (context.applicationContext as? EquityIQApplication)?.container?.firebaseManager
         if (firebaseManager != null && firebaseManager.isReady()) {
-            firebaseManager.syncTradeSingle(entity)
+            firebaseManager.syncTradeSingle(syncedEntity)
         }
     }
 
