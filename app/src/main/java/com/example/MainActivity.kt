@@ -40,6 +40,7 @@ import java.util.Locale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.remote.FirebaseAuthState
 import com.example.ui.screens.CalculatorScreen
 import com.example.ui.screens.IntelligenceScreen
 import com.example.ui.screens.PortfolioScreen
@@ -218,15 +219,19 @@ class MainActivity : ComponentActivity() {
                                         // Google Circular Avatar Profile (Extreme Top Right Corner)
                                         val firebaseManager = viewModel.firebaseManager
                                         val authStateForAvatar = firebaseManager?.authState?.collectAsStateWithLifecycle()?.value
-                                        val avatarName = when (authStateForAvatar) {
-                                            is com.example.data.remote.FirebaseAuthState.SignedIn -> {
-                                                authStateForAvatar.displayName.ifEmpty { authStateForAvatar.email }
+                                        val (avatarName, photoUrl) = when (authStateForAvatar) {
+                                            is FirebaseAuthState.SignedIn -> {
+                                                Pair(
+                                                    authStateForAvatar.displayName.ifEmpty { authStateForAvatar.email },
+                                                    authStateForAvatar.photoUrl
+                                                )
                                             }
-                                            else -> ""
+                                            else -> Pair("", null)
                                         }
 
                                         GoogleCircularLetter(
                                             name = avatarName,
+                                            photoUrl = photoUrl,
                                             size = 34.dp,
                                             fontSize = 14.sp,
                                             isSignedIn = authStateForAvatar is com.example.data.remote.FirebaseAuthState.SignedIn,

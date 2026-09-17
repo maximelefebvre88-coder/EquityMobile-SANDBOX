@@ -13,19 +13,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -55,7 +50,6 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.BuildConfig
 import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -77,12 +71,13 @@ fun SettingsScreen(
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
 
+    val clipboardManager = LocalClipboardManager.current
+
     var apiInput by remember(apiKey) { mutableStateOf(apiKey) }
     var showFinnhubKey by remember { mutableStateOf(false) }
 
     var geminiApiInput by remember(geminiApiKey) { mutableStateOf(geminiApiKey) }
     var showGeminiKey by remember { mutableStateOf(false) }
-    var showAdvancedKeys by remember { mutableStateOf(false) }
 
     var riskFreeInput by remember { mutableStateOf(riskFreeRate.toString()) }
     var riskPremiumInput by remember { mutableStateOf(riskPremium.toString()) }
@@ -109,7 +104,7 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Section 1: Consolidated Data Feeds & AI Engine Configuration
+            // Section 1: Finnhub Live API Configuration
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = SurfCard),
@@ -118,37 +113,29 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        val isFinnhubPreset = remember(apiKey) {
-                            apiKey.isNotEmpty() &&
-                                    apiKey == BuildConfig.FINNHUB_API_KEY &&
-                                    BuildConfig.FINNHUB_API_KEY != "YOUR_FINNHUB_API_KEY_HERE" &&
-                                    !BuildConfig.FINNHUB_API_KEY.startsWith("MY_FINNHUB")
-                        }
-                        val isGeminiPreset = remember(geminiApiKey) {
-                            geminiApiKey.isNotEmpty() &&
-                                    geminiApiKey == BuildConfig.GEMINI_API_KEY &&
-                                    BuildConfig.GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE" &&
-                                    BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY" &&
-                                    !BuildConfig.GEMINI_API_KEY.startsWith("MY_GEMINI")
+                        val isPresetActive = remember(apiKey) {
+                            apiKey == com.example.BuildConfig.FINNHUB_API_KEY &&
+                                    com.example.BuildConfig.FINNHUB_API_KEY.isNotEmpty() &&
+                                    com.example.BuildConfig.FINNHUB_API_KEY != "YOUR_FINNHUB_API_KEY_HERE" &&
+                                    !com.example.BuildConfig.FINNHUB_API_KEY.startsWith("MY_FINNHUB")
                         }
 
-                        // Header
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = TealAccent, modifier = Modifier.size(22.dp))
+                                Icon(Icons.Default.Key, contentDescription = null, tint = TealAccent, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Data Feeds & AI Engine",
+                                    text = "Finnhub API Integration",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = TealAccent,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            if (isFinnhubPreset && isGeminiPreset) {
+                            if (isPresetActive) {
                                 Surface(
                                     color = TealAccent.copy(alpha = 0.15f),
                                     shape = RoundedCornerShape(12.dp)
@@ -159,307 +146,372 @@ fun SettingsScreen(
                                     ) {
                                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent, modifier = Modifier.size(12.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Build Keys Active", color = TealAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Preset Active", color = TealAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Automatic zero-config data pipeline powered by built-in credentials, Yahoo Finance quotes, and Google Gemini AI.",
+                            text = "Provide your personal Finnhub API Key or paste directly from clipboard to fetch real-time quotes, financials, and company metrics.",
                             style = MaterialTheme.typography.bodySmall,
                             color = GrayText
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Service 1: Live Market Quotes & Search
-                        Surface(
-                            color = Color(0xFF1E293B).copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, BorderGray.copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Market Quotes & Search", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color.White)
+                        OutlinedTextField(
+                            value = apiInput,
+                            onValueChange = { newValue ->
+                                apiInput = newValue
+                                viewModel.updateApiKey(newValue)
+                            },
+                            label = { Text("Finnhub API Key") },
+                            placeholder = { Text("Paste or enter API key...") },
+                            singleLine = true,
+                            visualTransformation = if (showFinnhubKey) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (apiInput.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            apiInput = ""
+                                            viewModel.updateApiKey("")
+                                        }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = GrayText, modifier = Modifier.size(18.dp))
                                         }
-                                        Text("Yahoo Finance & Finnhub Engine", fontSize = 11.sp, color = GrayText)
                                     }
-
-                                    Button(
-                                        onClick = { viewModel.testFinnhubApiKey(apiInput) },
-                                        enabled = finnhubTestState !is ApiKeyTestState.Testing,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFF0F172A),
-                                            contentColor = TealAccent
-                                        ),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.4f))
-                                    ) {
-                                        if (finnhubTestState is ApiKeyTestState.Testing) {
-                                            CircularProgressIndicator(modifier = Modifier.size(12.dp), color = TealAccent, strokeWidth = 2.dp)
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Testing...", fontSize = 11.sp)
-                                        } else {
-                                            Text("Test Quote", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                        }
+                                    IconButton(onClick = { showFinnhubKey = !showFinnhubKey }) {
+                                        Icon(
+                                            imageVector = if (showFinnhubKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = if (showFinnhubKey) "Hide key" else "Show key",
+                                            tint = TealAccent
+                                        )
                                     }
                                 }
-
-                                when (val state = finnhubTestState) {
-                                    is ApiKeyTestState.Success -> {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Surface(
-                                            color = Color(0xFF10B981).copy(alpha = 0.15f),
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(state.message, color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                            }
-                                        }
-                                    }
-                                    is ApiKeyTestState.Error -> {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Surface(
-                                            color = Color(0xFFEF4444).copy(alpha = 0.15f),
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(state.message, color = Color(0xFFEF4444), fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                            }
-                                        }
-                                    }
-                                    else -> {}
-                                }
-                            }
-                        }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = TealAccent,
+                                cursorColor = TealAccent
+                            )
+                        )
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Service 2: AI Fundamentals & Valuation Sync
-                        Surface(
-                            color = Color(0xFF1E293B).copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, BorderGray.copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("AI Financial Statements", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color.White)
-                                        }
-                                        Text("Google Gemini Search Grounding", fontSize = 11.sp, color = GrayText)
+                            Button(
+                                onClick = {
+                                    val clipText = clipboardManager.getText()?.text?.trim().orEmpty()
+                                    if (clipText.isNotEmpty()) {
+                                        apiInput = clipText
+                                        viewModel.updateApiKey(clipText)
                                     }
-
-                                    Button(
-                                        onClick = { viewModel.testGeminiApiKey(geminiApiInput) },
-                                        enabled = geminiTestState !is ApiKeyTestState.Testing,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFF0F172A),
-                                            contentColor = TealAccent
-                                        ),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.4f))
-                                    ) {
-                                        if (geminiTestState is ApiKeyTestState.Testing) {
-                                            CircularProgressIndicator(modifier = Modifier.size(12.dp), color = TealAccent, strokeWidth = 2.dp)
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Testing...", fontSize = 11.sp)
-                                        } else {
-                                            Text("Test AI", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                        }
-                                    }
-                                }
-
-                                when (val state = geminiTestState) {
-                                    is ApiKeyTestState.Success -> {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Surface(
-                                            color = Color(0xFF10B981).copy(alpha = 0.15f),
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(state.message, color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                            }
-                                        }
-                                    }
-                                    is ApiKeyTestState.Error -> {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Surface(
-                                            color = Color(0xFFEF4444).copy(alpha = 0.15f),
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(state.message, color = Color(0xFFEF4444), fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                            }
-                                        }
-                                    }
-                                    else -> {}
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Advanced Custom API Overrides Accordion Toggle
-                        Surface(
-                            color = Color.Transparent,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { showAdvancedKeys = !showAdvancedKeys }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = TealAccent,
+                                    contentColor = Color.Black
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Tune, contentDescription = null, tint = GrayText, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.ContentPaste, contentDescription = "Paste", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Paste", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (apiInput.isNotEmpty()) {
+                                        viewModel.testFinnhubApiKey(apiInput)
+                                    }
+                                },
+                                enabled = apiInput.isNotEmpty() && finnhubTestState !is ApiKeyTestState.Testing,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1E293B),
+                                    contentColor = TealAccent
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f))
+                            ) {
+                                if (finnhubTestState is ApiKeyTestState.Testing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = TealAccent, strokeWidth = 2.dp)
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Custom API Key Overrides (Optional)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = GrayText,
-                                        fontWeight = FontWeight.Medium
-                                    )
+                                    Text("Testing...", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                } else {
+                                    Text("Test Connection", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 }
-                                Icon(
-                                    imageVector = if (showAdvancedKeys) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    contentDescription = null,
-                                    tint = GrayText,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                            }
+
+                            if (com.example.BuildConfig.FINNHUB_API_KEY.isNotEmpty() &&
+                                com.example.BuildConfig.FINNHUB_API_KEY != "YOUR_FINNHUB_API_KEY_HERE" &&
+                                apiInput != com.example.BuildConfig.FINNHUB_API_KEY
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        apiInput = com.example.BuildConfig.FINNHUB_API_KEY
+                                        viewModel.updateApiKey(com.example.BuildConfig.FINNHUB_API_KEY)
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    border = BorderStroke(1.dp, BorderGray)
+                                ) {
+                                    Text("Reset Preset", fontSize = 12.sp, color = Color.White)
+                                }
                             }
                         }
 
-                        if (showAdvancedKeys) {
-                            Spacer(modifier = Modifier.height(10.dp))
+                        // Test Status Banner for Finnhub
+                        when (val state = finnhubTestState) {
+                            is ApiKeyTestState.Success -> {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(state.message, color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                            is ApiKeyTestState.Error -> {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    color = Color(0xFFEF4444).copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(state.message, color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+            }
 
-                            // Finnhub Key Override Field
-                            OutlinedTextField(
-                                value = apiInput,
-                                onValueChange = { newValue ->
-                                    apiInput = newValue
-                                    viewModel.updateApiKey(newValue)
-                                },
-                                label = { Text("Custom Finnhub API Key") },
-                                placeholder = { Text("Paste custom key...") },
-                                singleLine = true,
-                                visualTransformation = if (showFinnhubKey) VisualTransformation.None else PasswordVisualTransformation(),
-                                trailingIcon = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (apiInput.isNotEmpty()) {
-                                            IconButton(onClick = {
-                                                apiInput = ""
-                                                viewModel.updateApiKey("")
-                                            }) {
-                                                Icon(Icons.Default.Clear, contentDescription = "Clear", tint = GrayText, modifier = Modifier.size(18.dp))
-                                            }
-                                        }
-                                        IconButton(onClick = { showFinnhubKey = !showFinnhubKey }) {
-                                            Icon(
-                                                imageVector = if (showFinnhubKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                                contentDescription = if (showFinnhubKey) "Hide key" else "Show key",
-                                                tint = TealAccent
-                                            )
+            // Section 1.5: Google Gemini AI API Configuration
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SurfCard),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        val isPresetActive = remember(geminiApiKey) {
+                            geminiApiKey == com.example.BuildConfig.GEMINI_API_KEY &&
+                                    com.example.BuildConfig.GEMINI_API_KEY.isNotEmpty() &&
+                                    com.example.BuildConfig.GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE" &&
+                                    com.example.BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY" &&
+                                    !com.example.BuildConfig.GEMINI_API_KEY.startsWith("MY_GEMINI")
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Key, contentDescription = null, tint = TealAccent, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Google Gemini AI API",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = TealAccent,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            if (isPresetActive) {
+                                Surface(
+                                    color = TealAccent.copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent, modifier = Modifier.size(12.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Preset Active", color = TealAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Provide your Google Gemini API Key to enable AI-Powered intelligent Baseline & Valuation Growth Estimation.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GrayText
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = geminiApiInput,
+                            onValueChange = { newValue ->
+                                geminiApiInput = newValue
+                                viewModel.updateGeminiApiKey(newValue)
+                            },
+                            label = { Text("Gemini API Key") },
+                            placeholder = { Text("Paste or enter Gemini API key...") },
+                            singleLine = true,
+                            visualTransformation = if (showGeminiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (geminiApiInput.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            geminiApiInput = ""
+                                            viewModel.updateGeminiApiKey("")
+                                        }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = GrayText, modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = TealAccent,
-                                    cursorColor = TealAccent
-                                )
+                                    IconButton(onClick = { showGeminiKey = !showGeminiKey }) {
+                                        Icon(
+                                            imageVector = if (showGeminiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = if (showGeminiKey) "Hide key" else "Show key",
+                                            tint = TealAccent
+                                        )
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = TealAccent,
+                                cursorColor = TealAccent
                             )
+                        )
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                            // Gemini Key Override Field
-                            OutlinedTextField(
-                                value = geminiApiInput,
-                                onValueChange = { newValue ->
-                                    geminiApiInput = newValue
-                                    viewModel.updateGeminiApiKey(newValue)
-                                },
-                                label = { Text("Custom Gemini API Key") },
-                                placeholder = { Text("Paste custom key...") },
-                                singleLine = true,
-                                visualTransformation = if (showGeminiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                                trailingIcon = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (geminiApiInput.isNotEmpty()) {
-                                            IconButton(onClick = {
-                                                geminiApiInput = ""
-                                                viewModel.updateGeminiApiKey("")
-                                            }) {
-                                                Icon(Icons.Default.Clear, contentDescription = "Clear", tint = GrayText, modifier = Modifier.size(18.dp))
-                                            }
-                                        }
-                                        IconButton(onClick = { showGeminiKey = !showGeminiKey }) {
-                                            Icon(
-                                                imageVector = if (showGeminiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                                contentDescription = if (showGeminiKey) "Hide key" else "Show key",
-                                                tint = TealAccent
-                                            )
-                                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    val clipText = clipboardManager.getText()?.text?.trim().orEmpty()
+                                    if (clipText.isNotEmpty()) {
+                                        geminiApiInput = clipText
+                                        viewModel.updateGeminiApiKey(clipText)
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = TealAccent,
-                                    cursorColor = TealAccent
-                                )
-                            )
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = TealAccent,
+                                    contentColor = Color.Black
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = "Paste", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Paste", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (geminiApiInput.isNotEmpty()) {
+                                        viewModel.testGeminiApiKey(geminiApiInput)
+                                    }
+                                },
+                                enabled = geminiApiInput.isNotEmpty() && geminiTestState !is ApiKeyTestState.Testing,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1E293B),
+                                    contentColor = TealAccent
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f))
+                            ) {
+                                if (geminiTestState is ApiKeyTestState.Testing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = TealAccent, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Testing...", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                } else {
+                                    Text("Test Connection", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            if (com.example.BuildConfig.GEMINI_API_KEY.isNotEmpty() &&
+                                com.example.BuildConfig.GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE" &&
+                                com.example.BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY" &&
+                                !com.example.BuildConfig.GEMINI_API_KEY.startsWith("MY_GEMINI") &&
+                                geminiApiInput != com.example.BuildConfig.GEMINI_API_KEY
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        geminiApiInput = com.example.BuildConfig.GEMINI_API_KEY
+                                        viewModel.updateGeminiApiKey(com.example.BuildConfig.GEMINI_API_KEY)
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    border = BorderStroke(1.dp, BorderGray)
+                                ) {
+                                    Text("Reset Preset", fontSize = 12.sp, color = Color.White)
+                                }
+                            }
+                        }
+
+                        // Test Status Banner for Gemini
+                        when (val state = geminiTestState) {
+                            is ApiKeyTestState.Success -> {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(state.message, color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                            is ApiKeyTestState.Error -> {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    color = Color(0xFFEF4444).copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(state.message, color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                            else -> {}
                         }
                     }
                 }
