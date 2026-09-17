@@ -211,15 +211,19 @@ class MainActivity : ComponentActivity() {
                                         // Google Circular Avatar Profile (Extreme Top Right Corner)
                                         val firebaseManager = viewModel.firebaseManager
                                         val authStateForAvatar = firebaseManager?.authState?.collectAsStateWithLifecycle()?.value
-                                        val avatarName = when (authStateForAvatar) {
+                                        val (avatarName, photoUrl) = when (authStateForAvatar) {
                                             is FirebaseAuthState.SignedIn -> {
-                                                authStateForAvatar.displayName.ifEmpty { authStateForAvatar.email }
+                                                Pair(
+                                                    authStateForAvatar.displayName.ifEmpty { authStateForAvatar.email },
+                                                    authStateForAvatar.photoUrl
+                                                )
                                             }
-                                            else -> ""
+                                            else -> Pair("", null)
                                         }
 
                                         GoogleCircularLetter(
                                             name = avatarName,
+                                            photoUrl = photoUrl,
                                             size = 34.dp,
                                             fontSize = 14.sp,
                                             isSignedIn = authStateForAvatar is FirebaseAuthState.SignedIn,
