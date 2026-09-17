@@ -81,7 +81,8 @@ class FirebaseManager(private val context: Context) {
                         authState.value = FirebaseAuthState.SignedIn(
                             uid = user.uid,
                             email = user.email ?: "",
-                            displayName = user.displayName ?: ""
+                            displayName = user.displayName ?: "",
+                            photoUrl = user.photoUrl?.toString()
                         )
                         startRealtimeSync(user.uid)
                     } else {
@@ -171,7 +172,8 @@ class FirebaseManager(private val context: Context) {
                 val userState = FirebaseAuthState.SignedIn(
                     uid = user.uid,
                     email = user.email ?: "",
-                    displayName = user.displayName ?: ""
+                    displayName = user.displayName ?: "",
+                    photoUrl = user.photoUrl?.toString()
                 )
                 authState.value = userState
                 startRealtimeSync(user.uid)
@@ -708,7 +710,12 @@ class FirebaseManager(private val context: Context) {
 
 sealed class FirebaseAuthState {
     object SignedOut : FirebaseAuthState()
-    data class SignedIn(val uid: String, val email: String, val displayName: String) : FirebaseAuthState()
+    data class SignedIn(
+        val uid: String,
+        val email: String,
+        val displayName: String,
+        val photoUrl: String? = null
+    ) : FirebaseAuthState()
 }
 
 sealed class FirebaseSyncState {

@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.data.remote.FirebaseAuthState
 import com.example.data.remote.FirebaseSyncState
 import com.example.ui.theme.BorderGray
@@ -49,7 +51,10 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.R
 import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -786,6 +791,7 @@ fun SettingsScreen(
                                     ) {
                                         GoogleCircularLetter(
                                             name = currentAuth.displayName.ifEmpty { currentAuth.email },
+                                            photoUrl = currentAuth.photoUrl,
                                             size = 36.dp,
                                             fontSize = 16.sp
                                         )
@@ -1093,24 +1099,68 @@ fun SettingsScreen(
 fun GoogleCircularLetter(
     name: String,
     modifier: Modifier = Modifier,
+    photoUrl: String? = null,
     isSignedIn: Boolean = true,
-    size: androidx.compose.ui.unit.Dp = 36.dp,
-    fontSize: androidx.compose.ui.unit.TextUnit = 16.sp
+    size: Dp = 36.dp,
+    fontSize: TextUnit = 16.sp
 ) {
-    if (!isSignedIn || name.isEmpty() || name == "G") {
-        // Official Google Chrome / Google Account Signed-Out Avatar:
-        // A clean, simple silhouette profile icon of a person inside a circle.
+    if (!isSignedIn) {
+        // Official Google Sign-In Entry Point Icon
+        // White circular surface with subtle border and official Google G logo
         Box(
             modifier = modifier
                 .size(size)
-                .background(Color(0xFFE8EAED), shape = CircleShape), // Light grey background
+                .background(Color.White, shape = CircleShape)
+                .border(1.dp, Color(0xFFDADCE0), shape = CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = "Signed Out",
-                tint = Color(0xFF5F6368), // Standard Google grey
-                modifier = Modifier.size(size * 0.6f)
+            Image(
+                painter = painterResource(id = R.drawable.ic_google_logo),
+                contentDescription = "Google Sign-In",
+                modifier = Modifier.size(size * 0.58f)
+            )
+        }
+    } else if (!photoUrl.isNullOrBlank()) {
+        // Official Google Profile Picture from Google Sign-In
+        var imageLoadFailed by remember(photoUrl) { mutableStateOf(false) }
+        if (!imageLoadFailed) {
+            AsyncImage(
+                model = photoUrl,
+                contentDescription = name.ifEmpty { "Google Account" },
+                contentScale = ContentScale.Crop,
+                modifier = modifier
+                    .size(size)
+                    .clip(CircleShape)
+                    .border(1.dp, Color(0xFFDADCE0).copy(alpha = 0.6f), CircleShape),
+                onError = { imageLoadFailed = true }
+            )
+        } else {
+            GoogleLetterAvatar(name = name, size = size, fontSize = fontSize, modifier = modifier)
+        }
+    } else {
+        GoogleLetterAvatar(name = name, size = size, fontSize = fontSize, modifier = modifier)
+    }
+}
+
+@Composable
+private fun GoogleLetterAvatar(
+    name: String,
+    size: Dp,
+    fontSize: TextUnit,
+    modifier: Modifier = Modifier
+) {
+    if (name.isEmpty() || name == "G") {
+        Box(
+            modifier = modifier
+                .size(size)
+                .background(Color.White, shape = CircleShape)
+                .border(1.dp, Color(0xFFDADCE0), shape = CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_google_logo),
+                contentDescription = "Google Account",
+                modifier = Modifier.size(size * 0.58f)
             )
         }
     } else {
@@ -1118,7 +1168,7 @@ fun GoogleCircularLetter(
         // A solid colored circle (dynamic Google brand color based on name)
         // with the user's capitalized first letter in white centered.
         val firstLetter = remember(name) { name.take(1).uppercase() }
-        
+
         // Dynamically choose one of Google's official brand colors based on the hashCode of the name
         val googleColors = remember {
             listOf(
