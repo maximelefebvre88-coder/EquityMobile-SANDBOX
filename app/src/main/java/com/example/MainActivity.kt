@@ -9,18 +9,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,7 +31,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.util.Locale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,14 +43,13 @@ import com.example.ui.screens.WheelTrackerScreen
 import com.example.ui.screens.GoogleCircularLetter
 import com.example.ui.theme.*
 import com.example.viewmodel.FinanceViewModel
-
 import com.example.viewmodel.FinanceViewModelFactory
 
 class MainActivity : ComponentActivity() {
     private val viewModel: FinanceViewModel by viewModels {
         FinanceViewModelFactory(
             application,
-            (application as EquityIQApplication).container.financeUseCases
+            (application as EquityIQApplication).container.financeUseCases,
         )
     }
 
@@ -69,21 +62,20 @@ class MainActivity : ComponentActivity() {
                 val tabs = remember { listOf("PORTFOLIO", "INTELLIGENCE", "CALCULATOR", "WHEEL") }
                 val pagerState = rememberPagerState(
                     initialPage = 0,
-                    pageCount = { tabs.size }
-                )
+                ) { tabs.size }
                 val currentTab = tabs[pagerState.currentPage]
                 var portfolioLandTrigger by remember { mutableIntStateOf(1) }
                 var previousTab by remember { mutableStateOf("PORTFOLIO") }
                 LaunchedEffect(currentTab) {
-                    if (currentTab == "PORTFOLIO" && previousTab != "PORTFOLIO") {
+                    if ((currentTab == "PORTFOLIO") && (previousTab != "PORTFOLIO")) {
                         portfolioLandTrigger++
                     }
                     previousTab = currentTab
                 }
                 val coroutineScope = rememberCoroutineScope()
-                var showExitConfirmationDialog by remember { mutableStateOf(false) }
-                var showSettings by remember { mutableStateOf(false) }
-                var showAddTickerDialog by remember { mutableStateOf(false) }
+                var showExitConfirmationDialog by remember { mutableStateOf(value = false) }
+                var showSettings by remember { mutableStateOf(value = false) }
+                var showAddTickerDialog by remember { mutableStateOf(value = false) }
 
                 BackHandler {
                     if (showSettings) {
@@ -219,22 +211,18 @@ class MainActivity : ComponentActivity() {
                                         // Google Circular Avatar Profile (Extreme Top Right Corner)
                                         val firebaseManager = viewModel.firebaseManager
                                         val authStateForAvatar = firebaseManager?.authState?.collectAsStateWithLifecycle()?.value
-                                        val (avatarName, photoUrl) = when (authStateForAvatar) {
+                                        val avatarName = when (authStateForAvatar) {
                                             is FirebaseAuthState.SignedIn -> {
-                                                Pair(
-                                                    authStateForAvatar.displayName.ifEmpty { authStateForAvatar.email },
-                                                    authStateForAvatar.photoUrl
-                                                )
+                                                authStateForAvatar.displayName.ifEmpty { authStateForAvatar.email }
                                             }
-                                            else -> Pair("", null)
+                                            else -> ""
                                         }
 
                                         GoogleCircularLetter(
                                             name = avatarName,
-                                            photoUrl = photoUrl,
                                             size = 34.dp,
                                             fontSize = 14.sp,
-                                            isSignedIn = authStateForAvatar is com.example.data.remote.FirebaseAuthState.SignedIn,
+                                            isSignedIn = authStateForAvatar is FirebaseAuthState.SignedIn,
                                             modifier = Modifier
                                                 .clip(CircleShape)
                                                 .clickable { showSettings = true }
