@@ -838,14 +838,30 @@ fun PortfolioScreen(
                     ((stockLivePrice - baseCostBasis) / baseCostBasis) * 100.0
                 } else 0.0
 
-                // Weighted FCF Yield of buys:
-                val buyTrades = tickerTrades.filter { it.tradeType == "Buying shares" || it.tradeType == "Assignment" }
-                val totalBuySharesForYield = buyTrades.sumOf {
-                    if (it.tradeType == "Assignment") it.contracts * 100 else it.contracts
+                // Weighted FCF Yield of buys & assignments:
+                val buyTrades = tickerTrades.filter { trade ->
+                    when (trade.tradeType) {
+                        "Buying shares", "Assignment" -> true
+                        "Sell CSP" -> {
+                            trade.manualOutcome == "ASSIGNED" || (!trade.isClosed && trade.expiryDate != null && trade.expiryDate <= now && ticker.livePrice > 0.0 && ticker.livePrice < trade.strikePrice)
+                        }
+                        else -> false
+                    }
+                }
+                val totalBuySharesForYield = buyTrades.sumOf { trade ->
+                    when (trade.tradeType) {
+                        "Assignment", "Sell CSP" -> trade.contracts * 100
+                        "Buying shares" -> trade.contracts
+                        else -> 0
+                    }
                 }
                 val averageOwnersFcfYieldPct = if (totalBuySharesForYield > 0) {
                     val weightedFcfYieldSum = buyTrades.sumOf { trade ->
-                        val qty = if (trade.tradeType == "Assignment") trade.contracts * 100 else trade.contracts
+                        val qty = when (trade.tradeType) {
+                            "Assignment", "Sell CSP" -> trade.contracts * 100
+                            "Buying shares" -> trade.contracts
+                            else -> 0
+                        }
                         val yieldOfTrade = if (trade.fcfYield > 0.0) {
                             trade.fcfYield
                         } else {
@@ -861,8 +877,8 @@ fun PortfolioScreen(
                     weightedFcfYieldSum / totalBuySharesForYield
                 } else {
                     val fcfPerShareVal = cachedFcfPerShare ?: 0.0
-                    if (fcfPerShareVal > 0.0 && ticker.livePrice > 0.0) {
-                        (fcfPerShareVal / ticker.livePrice) * 100.0
+                    if (fcfPerShareVal > 0.0 && stockLivePrice > 0.0) {
+                        (fcfPerShareVal / stockLivePrice) * 100.0
                     } else {
                         cachedHistoricalFcfYield ?: 0.0
                     }
@@ -871,15 +887,29 @@ fun PortfolioScreen(
                 val estimatedAnnualFcfValue = if (assignedShares > 0) {
                     val fcfPerShareVal = cachedFcfPerShare ?: run {
                         val histYield = cachedHistoricalFcfYield ?: 0.0
-                        if (histYield > 0.0 && ticker.livePrice > 0.0) {
-                            (histYield / 100.0) * ticker.livePrice
+                        if (histYield > 0.0 && stockLivePrice > 0.0) {
+                            (histYield / 100.0) * stockLivePrice
                         } else 0.0
                     }
-                    fcfPerShareVal * assignedShares
+                    if (fcfPerShareVal > 0.0) {
+                        fcfPerShareVal * assignedShares
+                    } else if (averageOwnersFcfYieldPct > 0.0 && activeCostBasis > 0.0) {
+                        (averageOwnersFcfYieldPct / 100.0) * activeCostBasis * assignedShares
+                    } else 0.0
                 } else 0.0
 
                 var isEditingTargetPrice by remember(ticker.symbol) { mutableStateOf(false) }
-                var manualTargetInput by remember(ticker.symbol, ticker.targetPrice) { mutableStateOf(ticker.targetPrice?.toString() ?: "") }
+                var manualTargetInput by remember(ticker.symbol, ticker.targetPrice) {
+                    mutableStateOf(ticker.targetPrice?.toString() ?: "")
+                }
+                var manualTargetYieldInput by remember(ticker.symbol, ticker.targetPrice, cachedFcfPerShare) {
+                    val fcf = cachedFcfPerShare ?: 0.0
+                    val tp = ticker.targetPrice
+                    val y = if (tp != null && tp > 0.0 && fcf > 0.0) {
+                        String.format(Locale.US, "%.2f", (fcf / tp) * 100.0)
+                    } else ""
+                    mutableStateOf(y)
+                }
 
                 Box(
                     modifier = Modifier
@@ -1277,8 +1307,12 @@ fun PortfolioScreen(
                                 }
                             }
 
-                            // 3. Price Target Square
+                            // 3. Split Price Target & Yield Target Square (Left & Right Split)
                             val targetVal = ticker.targetPrice
+                            val fcfPerShareForTarget = cachedFcfPerShare ?: 0.0
+                            val targetYieldVal = if (targetVal != null && targetVal > 0.0 && fcfPerShareForTarget > 0.0) {
+                                (fcfPerShareForTarget / targetVal) * 100.0
+                            } else null
                             val hasTarget = targetVal != null && targetVal > 0.0
                             val targetBorderColor = if (isEditingTargetPrice) TealAccent.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.10f)
 
@@ -1294,56 +1328,80 @@ fun PortfolioScreen(
                                     }
                                     .padding(horizontal = 6.dp, vertical = 7.dp)
                             ) {
-                                Column {
-                                    Text(
-                                        text = "PRICE TARGET",
-                                        fontSize = 8.sp,
-                                        color = GrayText,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.4.sp,
-                                        maxLines = 1
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = if (targetVal != null) {
-                                            formatCurrency(targetVal)
-                                        } else "--",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = if (hasTarget) LightText else GrayText.copy(alpha = 0.6f),
-                                        maxLines = 1
-                                    )
-                                    Spacer(modifier = Modifier.height(1.dp))
-                                    if (targetVal != null && (activeCostBasis > 0.0 || stockLivePrice > 0.0)) {
-                                        val referenceBasis = if (activeCostBasis > 0.0) activeCostBasis else stockLivePrice
-                                        val diffPct = ((referenceBasis - targetVal) / targetVal) * 100.0
-                                        val isOver = diffPct > 0.05
-                                        val isUnder = diffPct < -0.05
-                                        val pctFormatted = String.format(Locale.US, "%.1f", kotlin.math.abs(diffPct))
-
-                                        val subText = when {
-                                            isOver -> "$pctFormatted% Over"
-                                            isUnder -> "$pctFormatted% Under"
-                                            else -> "0.0% Fair"
-                                        }
-                                        val subColor = when {
-                                            isOver -> RedLoss
-                                            isUnder -> TealAccent
-                                            else -> GrayText
-                                        }
-
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Left: Price Target
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
                                         Text(
-                                            text = subText,
-                                            fontSize = 7.5.sp,
+                                            text = "PRICE",
+                                            fontSize = 8.sp,
+                                            color = GrayText,
                                             fontWeight = FontWeight.Bold,
-                                            color = subColor,
+                                            letterSpacing = 0.4.sp,
                                             maxLines = 1
                                         )
-                                    } else {
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = if (isEditingTargetPrice) "Editing..." else "Tap to set",
+                                            text = if (targetVal != null && targetVal > 0.0) {
+                                                formatCurrency(targetVal)
+                                            } else "--",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (hasTarget) LightText else GrayText.copy(alpha = 0.6f),
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(1.dp))
+                                        Text(
+                                            text = "Target",
                                             fontSize = 7.5.sp,
-                                            color = if (isEditingTargetPrice) TealAccent else GrayText.copy(alpha = 0.8f),
+                                            color = GrayText,
+                                            maxLines = 1
+                                        )
+                                    }
+
+                                    // Subtle Vertical Divider
+                                    Box(
+                                        modifier = Modifier
+                                            .width(1.dp)
+                                            .height(30.dp)
+                                            .background(Color.White.copy(alpha = 0.08f))
+                                    )
+
+                                    // Right: Yield Target
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(start = 5.dp),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
+                                        Text(
+                                            text = "YIELD",
+                                            fontSize = 8.sp,
+                                            color = AmberWarning.copy(alpha = 0.9f),
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.4.sp,
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = if (targetYieldVal != null && targetYieldVal > 0.0) {
+                                                String.format(Locale.US, "%.1f%%", targetYieldVal)
+                                            } else "--",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (targetYieldVal != null) AmberWarning else GrayText.copy(alpha = 0.6f),
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(1.dp))
+                                        Text(
+                                            text = "Target",
+                                            fontSize = 7.5.sp,
+                                            color = GrayText,
                                             maxLines = 1
                                         )
                                     }
@@ -1351,47 +1409,106 @@ fun PortfolioScreen(
                             }
                         }
 
-                        // Price Target editor field inline
+                        // Price & Yield Target editor field inline
                         if (isEditingTargetPrice) {
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = 0.03f))
+                                    .border(1.dp, TealAccent.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                OutlinedTextField(
-                                    value = manualTargetInput,
-                                    onValueChange = { manualTargetInput = it },
-                                    label = { Text("Price Target ($)", fontSize = 12.sp) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TealAccent)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Button(
-                                    onClick = {
-                                        val d = manualTargetInput.toDoubleOrNull()
-                                        viewModel.updateTickerTargetPrice(ticker.symbol, d)
-                                        isEditingTargetPrice = false
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Save", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    OutlinedTextField(
+                                        value = manualTargetInput,
+                                        onValueChange = {
+                                            manualTargetInput = it
+                                            val p = it.replace(',', '.').toDoubleOrNull()
+                                            val fcf = cachedFcfPerShare ?: 0.0
+                                            if (p != null && p > 0.0 && fcf > 0.0) {
+                                                manualTargetYieldInput = String.format(Locale.US, "%.2f", (fcf / p) * 100.0)
+                                            }
+                                        },
+                                        label = { Text("Price Target ($)", fontSize = 11.sp) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = LightText,
+                                            unfocusedTextColor = LightText,
+                                            focusedBorderColor = TealAccent,
+                                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                                        )
+                                    )
+                                    OutlinedTextField(
+                                        value = manualTargetYieldInput,
+                                        onValueChange = {
+                                            manualTargetYieldInput = it
+                                            val y = it.replace(',', '.').toDoubleOrNull()
+                                            val fcf = cachedFcfPerShare ?: 0.0
+                                            if (y != null && y > 0.0 && fcf > 0.0) {
+                                                val calcPrice = fcf / (y / 100.0)
+                                                manualTargetInput = String.format(Locale.US, "%.2f", calcPrice)
+                                            }
+                                        },
+                                        label = { Text("Yield Target (%)", fontSize = 11.sp) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = LightText,
+                                            unfocusedTextColor = LightText,
+                                            focusedBorderColor = AmberWarning,
+                                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                                        )
+                                    )
                                 }
-                                Spacer(modifier = Modifier.width(4.dp))
-                                TextButton(onClick = {
-                                    viewModel.updateTickerTargetPrice(ticker.symbol, null)
-                                    manualTargetInput = ""
-                                    isEditingTargetPrice = false
-                                }) {
-                                    Text("Clear", color = RedLoss, fontSize = 12.sp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.updateTickerTargetPrice(ticker.symbol, null)
+                                            manualTargetInput = ""
+                                            manualTargetYieldInput = ""
+                                            isEditingTargetPrice = false
+                                        }
+                                    ) {
+                                        Text("Clear", color = RedLoss, fontSize = 12.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Button(
+                                        onClick = {
+                                            val d = manualTargetInput.replace(',', '.').toDoubleOrNull()
+                                                ?: run {
+                                                    val y = manualTargetYieldInput.replace(',', '.').toDoubleOrNull()
+                                                    val fcf = cachedFcfPerShare ?: 0.0
+                                                    if (y != null && y > 0.0 && fcf > 0.0) fcf / (y / 100.0) else null
+                                                }
+                                            viewModel.updateTickerTargetPrice(ticker.symbol, d)
+                                            isEditingTargetPrice = false
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                                    ) {
+                                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Shares, Premiums & Unrealized P&L
+                        // Shares, Investment Yield, Premiums & Unrealized P&L
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1406,6 +1523,40 @@ fun PortfolioScreen(
                             ) {
                                 Text("Shares owned:", fontSize = 12.sp, color = GrayText)
                                 Text("$assignedShares shares", fontSize = 12.sp, color = LightText, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Investment Yield:", fontSize = 12.sp, color = GrayText)
+                                if (assignedShares > 0 && averageOwnersFcfYieldPct > 0.0) {
+                                    val fcfAnnStr = if (estimatedAnnualFcfValue > 0.0) {
+                                        if (isAmountsHidden) " (••••/yr)" else " (${formatCurrency(estimatedAnnualFcfValue)}/yr)"
+                                    } else ""
+                                    Text(
+                                        text = "${String.format(Locale.US, "%.2f%%", averageOwnersFcfYieldPct)}$fcfAnnStr",
+                                        fontSize = 12.sp,
+                                        color = TealAccent,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else if (assignedShares > 0 && estimatedAnnualFcfValue > 0.0) {
+                                    Text(
+                                        text = if (isAmountsHidden) "••••" else "${formatCurrency(estimatedAnnualFcfValue)}/yr",
+                                        fontSize = 12.sp,
+                                        color = TealAccent,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else if (averageOwnersFcfYieldPct > 0.0) {
+                                    Text(
+                                        text = String.format(Locale.US, "%.2f%%", averageOwnersFcfYieldPct),
+                                        fontSize = 12.sp,
+                                        color = TealAccent,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else {
+                                    Text("—", fontSize = 12.sp, color = GrayText)
+                                }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
@@ -1440,37 +1591,6 @@ fun PortfolioScreen(
                                     color = if (pnlDisplay >= 0) TealAccent else RedLoss,
                                     fontWeight = FontWeight.Bold
                                 )
-                            }
-                            if (averageOwnersFcfYieldPct > 0.0 || estimatedAnnualFcfValue > 0.0) {
-                                Divider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 8.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Our Investment FCF Yield:", fontSize = 12.sp, color = GrayText)
-                                    Text(
-                                        text = String.format(Locale.getDefault(), "%.2f%%", averageOwnersFcfYieldPct),
-                                        fontSize = 12.sp,
-                                        color = TealAccent,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                                if (assignedShares > 0 && estimatedAnnualFcfValue > 0.0) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("Prorated Share of FCF (Ann.):", fontSize = 12.sp, color = GrayText)
-                                        val fcfDisplay = estimatedAnnualFcfValue
-                                        Text(
-                                            text = formatCurrency(fcfDisplay, isHidden = isAmountsHidden),
-                                            fontSize = 12.sp,
-                                            color = TealAccent,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
