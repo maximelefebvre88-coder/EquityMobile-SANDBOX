@@ -716,18 +716,6 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
         val currentTicker = tickerDao.getTickerBySymbol(sym) ?: cachedTicker
         if (currentTicker != null) {
             tickerDao.updatePrice(sym, finalPrice, companyName, System.currentTimeMillis(), currentTicker.logoUrl, changePercent)
-        } else {
-            val maxOrder = tickerDao.getMaxDisplayOrder() ?: 0
-            tickerDao.insert(
-                WatchlistTickerEntity(
-                    symbol = sym,
-                    companyName = companyName,
-                    livePrice = finalPrice,
-                    lastFetched = System.currentTimeMillis(),
-                    displayOrder = maxOrder + 1,
-                    changePercent = changePercent
-                )
-            )
         }
         calculatorSnapshotDao.insertSnapshot(snapshotEntity)
 
@@ -946,18 +934,6 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
         val currentTicker = tickerDao.getTickerBySymbol(sym) ?: cachedTicker
         if (currentTicker != null) {
             tickerDao.updatePrice(sym, livePrice, companyName, System.currentTimeMillis(), currentTicker.logoUrl, changePercent)
-        } else {
-            val maxOrder = tickerDao.getMaxDisplayOrder() ?: 0
-            tickerDao.insert(
-                WatchlistTickerEntity(
-                    symbol = sym,
-                    companyName = companyName,
-                    livePrice = livePrice,
-                    lastFetched = System.currentTimeMillis(),
-                    displayOrder = maxOrder + 1,
-                    changePercent = changePercent
-                )
-            )
         }
         calculatorSnapshotDao.insertSnapshot(snapshotEntity)
 

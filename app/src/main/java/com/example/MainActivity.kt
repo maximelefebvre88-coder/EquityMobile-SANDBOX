@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties
+import java.util.Locale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -100,6 +102,7 @@ class MainActivity : ComponentActivity() {
 
                 val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
                 val activeTicker by viewModel.selectedCalculatorTicker.collectAsStateWithLifecycle()
+                val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
 
                 LaunchedEffect(watchlist) {
                     if (watchlist.isNotEmpty()) {
@@ -437,24 +440,154 @@ class MainActivity : ComponentActivity() {
                 if (showAddTickerDialog) {
                     var tickerSymbol by remember { mutableStateOf("") }
                     var companyName by remember { mutableStateOf("") }
+                    var isTickerDropdownExpanded by remember { mutableStateOf(false) }
+
+                    val matchingWatchlist = remember(tickerSymbol, watchlist) {
+                        val query = tickerSymbol.trim().uppercase()
+                        if (query.isEmpty()) emptyList()
+                        else watchlist.filter {
+                            it.symbol.uppercase().contains(query) || it.companyName.uppercase().contains(query)
+                        }
+                    }
+                    val remoteMatches = remember(tickerSymbol, searchResults, matchingWatchlist) {
+                        val query = tickerSymbol.trim().uppercase()
+                        if (query.length < 2) emptyList()
+                        else searchResults.filter { res ->
+                            matchingWatchlist.none { it.symbol.equals(res.symbol, ignoreCase = true) }
+                        }
+                    }
+
                     AlertDialog(
-                        onDismissRequest = { showAddTickerDialog = false },
+                        onDismissRequest = {
+                            showAddTickerDialog = false
+                            isTickerDropdownExpanded = false
+                            viewModel.searchSymbols("")
+                        },
                         title = { Text("Log New Watchlist Ticker", color = TealAccent, fontWeight = FontWeight.Bold) },
                         text = {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("Enter stock ticker symbol to track using EquityIQ's Wheel and DCF valuation tools.", color = GrayText, fontSize = 12.sp)
-                                OutlinedTextField(
-                                    value = tickerSymbol,
-                                    onValueChange = { tickerSymbol = it.uppercase() },
-                                    label = { Text("Ticker Symbol (e.g. V)") },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = LightText,
-                                        unfocusedTextColor = LightText,
-                                        focusedBorderColor = TealAccent
-                                    ),
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = tickerSymbol,
+                                        onValueChange = {
+                                            val upper = it.uppercase()
+                                            tickerSymbol = upper
+                                            if (upper.length >= 2) {
+                                                viewModel.searchSymbols(upper)
+                                            } else {
+                                                viewModel.searchSymbols("")
+                                            }
+                                            isTickerDropdownExpanded = upper.isNotBlank()
+                                        },
+                                        label = { Text("Ticker Symbol (e.g. V)") },
+                                        trailingIcon = {
+                                            if (tickerSymbol.isNotEmpty()) {
+                                                IconButton(
+                                                    onClick = {
+                                                        tickerSymbol = ""
+                                                        companyName = ""
+                                                        viewModel.searchSymbols("")
+                                                        isTickerDropdownExpanded = false
+                                                    }
+                                                ) {
+                                                    Icon(imageVector = Icons.Default.Close, contentDescription = "Clear", tint = GrayText)
+                                                }
+                                            }
+                                        },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = LightText,
+                                            unfocusedTextColor = LightText,
+                                            focusedBorderColor = TealAccent
+                                        ),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    DropdownMenu(
+                                        expanded = isTickerDropdownExpanded && (matchingWatchlist.isNotEmpty() || remoteMatches.isNotEmpty()),
+                                        onDismissRequest = { isTickerDropdownExpanded = false },
+                                        properties = PopupProperties(focusable = false),
+                                        modifier = Modifier
+                                            .background(SurfCard)
+                                            .fillMaxWidth(0.85f)
+                                            .heightIn(max = 240.dp)
+                                    ) {
+                                        if (matchingWatchlist.isNotEmpty()) {
+                                            Text(
+                                                text = "ALREADY IN WATCHLIST",
+                                                color = TealAccent,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                            )
+                                            matchingWatchlist.forEach { item ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(item.symbol, fontWeight = FontWeight.Bold, color = TealAccent)
+                                                                if (item.companyName.isNotEmpty() && item.companyName != item.symbol) {
+                                                                    Text(item.companyName, fontSize = 11.sp, color = GrayText, maxLines = 1)
+                                                                }
+                                                            }
+                                                            if (item.livePrice > 0.0) {
+                                                                Text(
+                                                                    String.format(Locale.US, "$%.2f", item.livePrice),
+                                                                    fontSize = 12.sp,
+                                                                    color = LightText,
+                                                                    fontWeight = FontWeight.SemiBold
+                                                                )
+                                                            }
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        tickerSymbol = item.symbol
+                                                        companyName = item.companyName
+                                                        isTickerDropdownExpanded = false
+                                                        viewModel.searchSymbols("")
+                                                    }
+                                                )
+                                            }
+                                        }
+
+                                        if (remoteMatches.isNotEmpty()) {
+                                            if (matchingWatchlist.isNotEmpty()) {
+                                                HorizontalDivider(color = BorderGray, thickness = 0.5.dp)
+                                            }
+                                            Text(
+                                                text = "MARKET SEARCH",
+                                                color = GrayText,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                            )
+                                            remoteMatches.forEach { res ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                                            Text(res.symbol, fontWeight = FontWeight.Bold, color = LightText)
+                                                            if (!res.name.isNullOrEmpty()) {
+                                                                Text(res.name, fontSize = 11.sp, color = GrayText, maxLines = 1)
+                                                            }
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        tickerSymbol = res.symbol
+                                                        companyName = res.name ?: res.symbol
+                                                        isTickerDropdownExpanded = false
+                                                        viewModel.searchSymbols("")
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
                                 OutlinedTextField(
                                     value = companyName,
                                     onValueChange = { companyName = it },
@@ -477,6 +610,8 @@ class MainActivity : ComponentActivity() {
                                         val finalName = companyName.ifEmpty { tickerSymbol }
                                         viewModel.addTickerToWatchlist(tickerSymbol, finalName)
                                         viewModel.selectedCalculatorTicker.value = tickerSymbol
+                                        isTickerDropdownExpanded = false
+                                        viewModel.searchSymbols("")
                                         showAddTickerDialog = false
                                     }
                                 }
@@ -485,7 +620,11 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         dismissButton = {
-                            TextButton(onClick = { showAddTickerDialog = false }) {
+                            TextButton(onClick = {
+                                showAddTickerDialog = false
+                                isTickerDropdownExpanded = false
+                                viewModel.searchSymbols("")
+                            }) {
                                 Text("CANCEL", color = GrayText)
                             }
                         },

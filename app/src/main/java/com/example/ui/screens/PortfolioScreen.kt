@@ -22,8 +22,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -51,6 +53,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
 import com.example.domain.model.WatchlistTicker
@@ -141,6 +144,23 @@ fun PortfolioScreen(
     var stockFeesInput by remember { mutableStateOf("0.0") }
     var stockDateInput by remember { mutableStateOf(sdf.format(java.util.Date())) }
     var stockFcfYieldInput by remember { mutableStateOf("") }
+    var isTickerDropdownExpanded by remember { mutableStateOf(false) }
+    val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+
+    val matchingWatchlist = remember(stockTickerInput, watchlist) {
+        val query = stockTickerInput.trim().uppercase()
+        if (query.isEmpty()) emptyList()
+        else watchlist.filter {
+            it.symbol.uppercase().contains(query) || it.companyName.uppercase().contains(query)
+        }
+    }
+    val remoteMatches = remember(stockTickerInput, searchResults, matchingWatchlist) {
+        val query = stockTickerInput.trim().uppercase()
+        if (query.length < 2) emptyList()
+        else searchResults.filter { res ->
+            matchingWatchlist.none { it.symbol.equals(res.symbol, ignoreCase = true) }
+        }
+    }
 
     LaunchedEffect(stockTickerInput, stockPriceInput, isBuyStockSelected) {
         if (stockTickerInput.isNotEmpty() && isBuyStockSelected) {
@@ -159,9 +179,6 @@ fun PortfolioScreen(
                     stockFcfYieldInput = ""
                 }
             } else {
-                if (sym.length >= 1) {
-                    viewModel.syncTicker(sym, force = false)
-                }
                 stockFcfYieldInput = ""
             }
         } else {
@@ -1945,18 +1962,142 @@ fun PortfolioScreen(
                         }
                     }
 
-                    OutlinedTextField(
-                        value = stockTickerInput,
-                        onValueChange = { stockTickerInput = it },
-                        label = { Text("Stock Ticker Symbol") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = LightText,
-                            unfocusedTextColor = LightText,
-                            focusedBorderColor = if (isBuyStockSelected) TealAccent else RedLoss
-                        ),
-                        modifier = Modifier.fillMaxWidth().testTag("stock_ticker_input")
-                    )
+                    val onSelectTicker: (String, Double?, String?) -> Unit = { symbol, price, _ ->
+                        val sym = symbol.uppercase().trim()
+                        stockTickerInput = sym
+                        isTickerDropdownExpanded = false
+                        viewModel.searchSymbols("")
+                        if (price != null && price > 0.0 && stockPriceInput.isEmpty()) {
+                            stockPriceInput = String.format(Locale.US, "%.2f", price)
+                        }
+                        val snap = allSnapshots[sym]
+                        if (snap != null) {
+                            if (stockPriceInput.isEmpty() && snap.currentPrice > 0.0) {
+                                stockPriceInput = String.format(Locale.US, "%.2f", snap.currentPrice)
+                            }
+                            val effPrice = stockPriceInput.toDoubleOrNull() ?: snap.currentPrice
+                            if (effPrice > 0.0 && snap.fcfPerShare > 0.0) {
+                                stockFcfYieldInput = String.format(Locale.US, "%.2f", (snap.fcfPerShare / effPrice) * 100.0)
+                            } else if (snap.historicalFcfYield > 0.0) {
+                                stockFcfYieldInput = String.format(Locale.US, "%.2f", snap.historicalFcfYield)
+                            }
+                        }
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = stockTickerInput,
+                            onValueChange = {
+                                val upper = it.uppercase()
+                                stockTickerInput = upper
+                                if (upper.length >= 2) {
+                                    viewModel.searchSymbols(upper)
+                                } else {
+                                    viewModel.searchSymbols("")
+                                }
+                                isTickerDropdownExpanded = upper.isNotBlank()
+                            },
+                            label = { Text("Stock Ticker Symbol") },
+                            placeholder = { Text("e.g. AAPL") },
+                            trailingIcon = {
+                                if (stockTickerInput.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            stockTickerInput = ""
+                                            viewModel.searchSymbols("")
+                                            isTickerDropdownExpanded = false
+                                        }
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Close, contentDescription = "Clear", tint = GrayText)
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = LightText,
+                                unfocusedTextColor = LightText,
+                                focusedBorderColor = if (isBuyStockSelected) TealAccent else RedLoss
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("stock_ticker_input")
+                        )
+
+                        DropdownMenu(
+                            expanded = isTickerDropdownExpanded && (matchingWatchlist.isNotEmpty() || remoteMatches.isNotEmpty()),
+                            onDismissRequest = { isTickerDropdownExpanded = false },
+                            properties = PopupProperties(focusable = false),
+                            modifier = Modifier
+                                .background(SurfCard)
+                                .fillMaxWidth(0.9f)
+                                .heightIn(max = 240.dp)
+                        ) {
+                            if (matchingWatchlist.isNotEmpty()) {
+                                Text(
+                                    text = "WATCHLIST",
+                                    color = TealAccent,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                )
+                                matchingWatchlist.forEach { item ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(item.symbol, fontWeight = FontWeight.Bold, color = TealAccent)
+                                                    if (item.companyName.isNotEmpty() && item.companyName != item.symbol) {
+                                                        Text(item.companyName, fontSize = 11.sp, color = GrayText, maxLines = 1)
+                                                    }
+                                                }
+                                                if (item.livePrice > 0.0) {
+                                                    Text(
+                                                        String.format(Locale.US, "$%.2f", item.livePrice),
+                                                        fontSize = 12.sp,
+                                                        color = LightText,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            onSelectTicker(item.symbol, if (item.livePrice > 0.0) item.livePrice else null, item.companyName)
+                                        }
+                                    )
+                                }
+                            }
+
+                            if (remoteMatches.isNotEmpty()) {
+                                if (matchingWatchlist.isNotEmpty()) {
+                                    HorizontalDivider(color = BorderGray, thickness = 0.5.dp)
+                                }
+                                Text(
+                                    text = "MARKET SEARCH",
+                                    color = GrayText,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                )
+                                remoteMatches.forEach { res ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column(modifier = Modifier.fillMaxWidth()) {
+                                                Text(res.symbol, fontWeight = FontWeight.Bold, color = LightText)
+                                                if (!res.name.isNullOrEmpty()) {
+                                                    Text(res.name, fontSize = 11.sp, color = GrayText, maxLines = 1)
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            onSelectTicker(res.symbol, null, res.name)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
@@ -2071,6 +2212,8 @@ fun PortfolioScreen(
                             stockPriceInput = ""
                             stockFeesInput = "0.0"
                             stockFcfYieldInput = ""
+                            isTickerDropdownExpanded = false
+                            viewModel.searchSymbols("")
                             showLogStockDialog = false
                         }
                     }
@@ -2080,7 +2223,11 @@ fun PortfolioScreen(
             },
             dismissButton = {
                 TextButton(
-                    onClick = { showLogStockDialog = false },
+                    onClick = {
+                        showLogStockDialog = false
+                        isTickerDropdownExpanded = false
+                        viewModel.searchSymbols("")
+                    },
                     modifier = Modifier.testTag("stock_transaction_cancel_button")
                 ) {
                     Text("CANCEL", color = GrayText)
