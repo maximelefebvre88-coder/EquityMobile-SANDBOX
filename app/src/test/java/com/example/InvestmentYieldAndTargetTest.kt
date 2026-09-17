@@ -3,6 +3,7 @@ package com.example
 import com.example.domain.model.CalculatorSnapshot
 import com.example.domain.model.TradeEntity
 import com.example.domain.model.WatchlistTicker
+import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -181,4 +182,27 @@ class InvestmentYieldAndTargetTest {
         assertEquals(0, heldShares)
         assertEquals(0.0, avgYield, 0.001)
     }
+
+    @Test
+    fun testLiveFcfYieldCalculationAndNaFallback() {
+        // When stock price is 150.0 and fcfPerShare is 6.0: live yield is 4.0%
+        val livePrice = 150.0
+        val fcfPerShare = 6.0
+        val liveYield = if (fcfPerShare > 0.0 && livePrice > 0.0) {
+            (fcfPerShare / livePrice) * 100.0
+        } else null
+
+        Assert.assertNotNull(liveYield)
+        assertEquals(4.0, liveYield!!, 0.001)
+
+        // When new stock is added with no FCF per share or 0 live price: fallback to null (N/A)
+        val newStockPrice = 0.0
+        val newStockFcf = 0.0
+        val fallbackYield = if (newStockFcf > 0.0 && newStockPrice > 0.0) {
+            (newStockFcf / newStockPrice) * 100.0
+        } else null
+
+        Assert.assertNull(fallbackYield)
+    }
 }
+

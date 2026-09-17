@@ -897,6 +897,10 @@ fun PortfolioScreen(
                     fcfPerShareVal * assignedShares
                 } else 0.0
 
+                val liveFcfYield = if (effectiveFcfPerShare > 0.0 && stockLivePrice > 0.0) {
+                    (effectiveFcfPerShare / stockLivePrice) * 100.0
+                } else null
+
                 var isEditingTargetPrice by remember(ticker.symbol) { mutableStateOf(false) }
                 var manualTargetInput by remember(ticker.symbol, ticker.targetPrice) {
                     mutableStateOf(ticker.targetPrice?.let { String.format(Locale.US, "%.2f", it) } ?: "")
@@ -1123,24 +1127,42 @@ fun PortfolioScreen(
                                         fontWeight = FontWeight.Black,
                                         color = Color.White
                                     )
-                                    val changePct = ticker.changePercent
-                                    if (changePct != null) {
-                                        val isPositive = changePct > 0.0001
-                                        val isNegative = changePct < -0.0001
-                                        val pctColor = when {
-                                            isPositive -> EmeraldGreen
-                                            isNegative -> RedLoss
-                                            else -> GrayText
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        val changePct = ticker.changePercent
+                                        if (changePct != null) {
+                                            val isPositive = changePct > 0.0001
+                                            val isNegative = changePct < -0.0001
+                                            val pctColor = when {
+                                                isPositive -> EmeraldGreen
+                                                isNegative -> RedLoss
+                                                else -> GrayText
+                                            }
+                                            val prefix = if (isPositive) "+" else ""
+                                            Text(
+                                                text = String.format(Locale.US, "%s%.2f%%", prefix, changePct),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = pctColor
+                                            )
+                                            Text(
+                                                text = " • ",
+                                                fontSize = 10.sp,
+                                                color = GrayText.copy(alpha = 0.5f)
+                                            )
                                         }
-                                        val prefix = if (isPositive) "+" else ""
                                         Text(
-                                            text = String.format(Locale.US, "%s%.2f%%", prefix, changePct),
+                                            text = if (liveFcfYield != null && liveFcfYield > 0.0) {
+                                                String.format(Locale.US, "%.2f%% FCF", liveFcfYield)
+                                            } else {
+                                                "FCF N/A"
+                                            },
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = pctColor
+                                            color = if (liveFcfYield != null && liveFcfYield > 0.0) AmberWarning else GrayText.copy(alpha = 0.6f)
                                         )
-                                    } else {
-                                        Text("Live Price", fontSize = 10.sp, color = GrayText)
                                     }
                                 }
                                 IconButton(
