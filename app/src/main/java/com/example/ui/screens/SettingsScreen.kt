@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.R
 import com.example.data.remote.FirebaseAuthState
 import com.example.data.remote.FirebaseSyncState
@@ -60,6 +61,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.text.font.FontFamily
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
 import com.google.android.gms.common.api.ApiException
@@ -116,7 +118,319 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Section 1: Consolidated Data Feeds & AI Engine Configuration
+            // Section 1: Cloud Storage & Google Sign-In
+            item {
+                val context = LocalContext.current
+                val firebaseManager = viewModel.firebaseManager
+                val isInitialized by (firebaseManager?.isInitialized ?: MutableStateFlow(false)).collectAsStateWithLifecycle()
+                val authState by (firebaseManager?.authState ?: MutableStateFlow(FirebaseAuthState.SignedOut)).collectAsStateWithLifecycle()
+                val syncState by (firebaseManager?.syncState ?: MutableStateFlow(FirebaseSyncState.Idle)).collectAsStateWithLifecycle()
+                val vmSyncMessage by viewModel.firebaseAuthStatusMessage.collectAsStateWithLifecycle()
+                val isSyncing by viewModel.isFirebaseSyncing.collectAsStateWithLifecycle()
+
+                val fbClientIdInput = remember { firebaseManager?.getFirebaseAuthClientId() ?: "" }
+                val isConfigured = remember(isInitialized) { isInitialized }
+
+                // Google Sign In Launcher
+                val gso = remember(fbClientIdInput) {
+                    GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                        .requestIdToken(fbClientIdInput.ifEmpty { "123456789.apps.googleusercontent.com" }) // fallback client ID to avoid crash if empty
+                        .requestEmail()
+                        .build()
+                }
+                val googleSignInClient = remember(gso) {
+                    GoogleSignIn.getClient(context, gso)
+                }
+
+                val googleSignInLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartActivityForResult()
+                ) { result ->
+                    val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                    try {
+                        val account = task.getResult(ApiException::class.java)
+                        val idToken = account?.idToken
+                        val photoUrl = account?.photoUrl?.toString()
+                        val displayName = account?.displayName
+                        if (idToken != null) {
+                            viewModel.signInWithGoogleIdToken(idToken, photoUrl, displayName)
+                        } else {
+                            viewModel.setFirebaseAuthStatusMessage("Google account token was null.")
+                        }
+                    } catch (e: ApiException) {
+                        viewModel.setFirebaseAuthStatusMessage("Google Sign-In failed: Code ${e.statusCode} (${e.localizedMessage})")
+                    }
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SurfCard),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Cloud Storage & Cross-Device Sync",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TealAccent,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Sign in with your Google account to automatically back up and synchronize your watchlist, trades, calculator baselines, and custom settings.",
+                            fontSize = 12.sp,
+                            color = GrayText
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Status Row
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isConfigured) Color(0xFF10B981) else Color(0xFFF59E0B))
+                            )
+                            Text(
+                                text = if (isConfigured) "Cloud Saving Active" else "Cloud Sync Pending Setup",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        // User Auth State Panel
+                        Spacer(modifier = Modifier.height(12.dp))
+                        when (val currentAuth = authState) {
+                            is FirebaseAuthState.SignedIn -> {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        GoogleCircularLetter(
+                                            name = currentAuth.displayName.ifEmpty { currentAuth.email },
+                                            photoUrl = currentAuth.photoUrl,
+                                            size = 36.dp,
+                                            fontSize = 16.sp
+                                        )
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(currentAuth.displayName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Text(currentAuth.email, fontSize = 12.sp, color = GrayText)
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            viewModel.syncWithCloud()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
+                                        modifier = Modifier.weight(1f),
+                                        enabled = !isSyncing
+                                    ) {
+                                        Text("Sync Now", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.signOutFirebase()
+                                            googleSignInClient.signOut()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Sign Out", color = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                            }
+                            FirebaseAuthState.SignedOut -> {
+                                if (isConfigured) {
+                                    GoogleSignInButton(
+                                        onClick = {
+                                            if (fbClientIdInput.isEmpty() || fbClientIdInput == "YOUR_FIREBASE_CLIENT_ID_HERE") {
+                                                viewModel.setFirebaseAuthStatusMessage("Please add FIREBASE_CLIENT_ID to the Secrets panel in AI Studio.")
+                                            } else {
+                                                googleSignInClient.signOut().addOnCompleteListener {
+                                                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                } else {
+                                    Column {
+                                        Text(
+                                            text = "Automatic synchronization will be activated once Firebase credentials are set in the AI Studio Secrets panel.",
+                                            fontSize = 12.sp,
+                                            color = GrayText
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+                                                Text(
+                                                    text = "Setup Instructions:",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = TealAccent
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Go to the 'Secrets' panel in AI Studio and add:\n• FIREBASE_CLIENT_ID\n• FIREBASE_API_KEY\n• FIREBASE_PROJECT_ID\n• FIREBASE_APP_ID",
+                                                    fontSize = 11.sp,
+                                                    color = GrayText,
+                                                    lineHeight = 16.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Sync State messages
+                        val currentSyncState = syncState
+                        val displaySyncMsg = when {
+                            isSyncing -> vmSyncMessage ?: "Cloud Sync in progress..."
+                            currentSyncState is FirebaseSyncState.Syncing -> "Cloud Sync in progress..."
+                            currentSyncState is FirebaseSyncState.Success -> "All data synced and backed up successfully!"
+                            currentSyncState is FirebaseSyncState.Error -> "Sync Alert: ${currentSyncState.message}"
+                            !vmSyncMessage.isNullOrEmpty() -> vmSyncMessage
+                            else -> null
+                        }
+
+                        if (displaySyncMsg != null) {
+                            val isPermissionError = displaySyncMsg.contains("permission-denied", ignoreCase = true) ||
+                                                    displaySyncMsg.contains("permission denied", ignoreCase = true) ||
+                                                    displaySyncMsg.contains("PERMISSION_DENIED", ignoreCase = true) ||
+                                                    displaySyncMsg.contains("insufficient permissions", ignoreCase = true)
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isPermissionError || displaySyncMsg.contains("Error") || displaySyncMsg.contains("failed") || displaySyncMsg.contains("Secrets")) {
+                                        Color(0xFFEF4444).copy(alpha = 0.1f)
+                                    } else {
+                                        TealAccent.copy(alpha = 0.1f)
+                                    }
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = displaySyncMsg,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isPermissionError || displaySyncMsg.contains("Error") || displaySyncMsg.contains("failed") || displaySyncMsg.contains("Secrets")) {
+                                        Color(0xFFF87171)
+                                    } else {
+                                        TealAccent
+                                    },
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+
+                            if (isPermissionError) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = Color(0xFF1E1E1E),
+                                        contentColor = Color.White
+                                    ),
+                                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Warning,
+                                                contentDescription = "Firestore Rules Required",
+                                                tint = Color(0xFFF59E0B),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Text(
+                                                text = "Firestore Security Rules Required",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = Color(0xFFF59E0B)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "A 'permission-denied' response means your Cloud Firestore Database rules block the application from saving/restoring backup data. By default, newly created Firestore databases deny all reads and writes. To resolve this:",
+                                            fontSize = 12.sp,
+                                            color = Color.White,
+                                            lineHeight = 16.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = "1. Open your Firebase Console and select your project.\n" +
+                                                   "2. Navigate to Build > Firestore Database.\n" +
+                                                   "3. Click the Rules tab.\n" +
+                                                   "4. Copy and paste the secure user-isolated rules below:",
+                                            fontSize = 12.sp,
+                                            color = GrayText,
+                                            lineHeight = 18.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        
+                                        // Code snippet block
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+                                                Text(
+                                                    text = "rules_version = '2';\n" +
+                                                           "service cloud.firestore {\n" +
+                                                           "  match /databases/{database}/documents {\n" +
+                                                           "    match /users/{userId}/{document=**} {\n" +
+                                                           "      allow read, write: if request.auth != null && request.auth.uid == userId;\n" +
+                                                           "    }\n" +
+                                                           "  }\n" +
+                                                           "}",
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 10.sp,
+                                                    color = TealAccent,
+                                                    lineHeight = 14.sp
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = "5. Click Publish to apply the rules. Once applied, click \"Sync Now\" above to backup and restore successfully!",
+                                            fontSize = 12.sp,
+                                            color = Color.White,
+                                            lineHeight = 16.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 2: Consolidated Data Feeds & AI Engine Configuration
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = SurfCard),
@@ -480,7 +794,7 @@ fun SettingsScreen(
             }
 
 
-            // Section 2: Preferences
+            // Section 3: Preferences
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = SurfCard),
@@ -576,7 +890,7 @@ fun SettingsScreen(
                 }
             }
 
-            // Section 3: Add / Remove Tickers from Watchlist (with autocomplete search using API)
+            // Section 4: Add / Remove Tickers from Watchlist (with autocomplete search using API)
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = SurfCard),
@@ -646,316 +960,6 @@ fun SettingsScreen(
                         if (isSearching) {
                             Spacer(modifier = Modifier.height(8.dp))
                             HorizontalDivider(color = TealAccent, modifier = Modifier.fillMaxWidth())
-                        }
-                    }
-                }
-            }
-
-            // Section 4: Cloud Storage & Sync Settings
-            item {
-                val context = LocalContext.current
-                val firebaseManager = viewModel.firebaseManager
-                val isInitialized by (firebaseManager?.isInitialized ?: MutableStateFlow(false)).collectAsStateWithLifecycle()
-                val authState by (firebaseManager?.authState ?: MutableStateFlow(FirebaseAuthState.SignedOut)).collectAsStateWithLifecycle()
-                val syncState by (firebaseManager?.syncState ?: MutableStateFlow(FirebaseSyncState.Idle)).collectAsStateWithLifecycle()
-                val vmSyncMessage by viewModel.firebaseAuthStatusMessage.collectAsStateWithLifecycle()
-                val isSyncing by viewModel.isFirebaseSyncing.collectAsStateWithLifecycle()
-
-                val fbClientIdInput = remember { firebaseManager?.getFirebaseAuthClientId() ?: "" }
-                val isConfigured = remember(isInitialized) { isInitialized }
-
-                // Google Sign In Launcher
-                val gso = remember(fbClientIdInput) {
-                    GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                        .requestIdToken(fbClientIdInput.ifEmpty { "123456789.apps.googleusercontent.com" }) // fallback client ID to avoid crash if empty
-                        .requestEmail()
-                        .build()
-                }
-                val googleSignInClient = remember(gso) {
-                    GoogleSignIn.getClient(context, gso)
-                }
-
-                val googleSignInLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.StartActivityForResult()
-                ) { result ->
-                    val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-                    try {
-                        val account = task.getResult(ApiException::class.java)
-                        val idToken = account?.idToken
-                        if (idToken != null) {
-                            viewModel.signInWithGoogleIdToken(idToken)
-                        } else {
-                            viewModel.setFirebaseAuthStatusMessage("Google account token was null.")
-                        }
-                    } catch (e: ApiException) {
-                        viewModel.setFirebaseAuthStatusMessage("Google Sign-In failed: Code ${e.statusCode} (${e.localizedMessage})")
-                    }
-                }
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = SurfCard),
-                    shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Cloud Storage & Cross-Device Sync",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TealAccent,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Sign in with your Google account to automatically back up and synchronize your watchlist, trades, calculator baselines, and custom settings.",
-                            fontSize = 12.sp,
-                            color = GrayText
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Status Row
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isConfigured) Color(0xFF10B981) else Color(0xFFF59E0B))
-                            )
-                            Text(
-                                text = if (isConfigured) "Cloud Saving Active" else "Cloud Sync Pending Setup",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        // User Auth State Panel
-                        Spacer(modifier = Modifier.height(12.dp))
-                        when (val currentAuth = authState) {
-                            is FirebaseAuthState.SignedIn -> {
-                                Card(
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        GoogleCircularLetter(
-                                            name = currentAuth.displayName.ifEmpty { currentAuth.email },
-                                            photoUrl = currentAuth.photoUrl,
-                                            size = 36.dp,
-                                            fontSize = 16.sp
-                                        )
-
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(currentAuth.displayName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                            Text(currentAuth.email, fontSize = 12.sp, color = GrayText)
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Button(
-                                        onClick = {
-                                            viewModel.syncWithCloud()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
-                                        modifier = Modifier.weight(1f),
-                                        enabled = !isSyncing
-                                    ) {
-                                        Text("Sync Now", color = Color.Black, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = {
-                                            viewModel.signOutFirebase()
-                                            googleSignInClient.signOut()
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("Sign Out", color = MaterialTheme.colorScheme.onSurface)
-                                    }
-                                }
-                            }
-                            FirebaseAuthState.SignedOut -> {
-                                if (isConfigured) {
-                                    GoogleSignInButton(
-                                        onClick = {
-                                            if (fbClientIdInput.isEmpty() || fbClientIdInput == "YOUR_FIREBASE_CLIENT_ID_HERE") {
-                                                viewModel.setFirebaseAuthStatusMessage("Please add FIREBASE_CLIENT_ID to the Secrets panel in AI Studio.")
-                                            } else {
-                                                googleSignInClient.signOut().addOnCompleteListener {
-                                                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                } else {
-                                    Column {
-                                        Text(
-                                            text = "Automatic synchronization will be activated once Firebase credentials are set in the AI Studio Secrets panel.",
-                                            fontSize = 12.sp,
-                                            color = GrayText
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Card(
-                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Column(modifier = Modifier.padding(12.dp)) {
-                                                Text(
-                                                    text = "Setup Instructions:",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = TealAccent
-                                                )
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                Text(
-                                                    text = "Go to the 'Secrets' panel in AI Studio and add:\n• FIREBASE_CLIENT_ID\n• FIREBASE_API_KEY\n• FIREBASE_PROJECT_ID\n• FIREBASE_APP_ID",
-                                                    fontSize = 11.sp,
-                                                    color = GrayText,
-                                                    lineHeight = 16.sp
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Sync State messages
-                        val currentSyncState = syncState
-                        val displaySyncMsg = when {
-                            isSyncing -> vmSyncMessage ?: "Cloud Sync in progress..."
-                            currentSyncState is FirebaseSyncState.Syncing -> "Cloud Sync in progress..."
-                            currentSyncState is FirebaseSyncState.Success -> "All data synced and backed up successfully!"
-                            currentSyncState is FirebaseSyncState.Error -> "Sync Alert: ${currentSyncState.message}"
-                            !vmSyncMessage.isNullOrEmpty() -> vmSyncMessage
-                            else -> null
-                        }
-
-                        if (displaySyncMsg != null) {
-                            val isPermissionError = displaySyncMsg.contains("permission-denied", ignoreCase = true) ||
-                                                    displaySyncMsg.contains("permission denied", ignoreCase = true) ||
-                                                    displaySyncMsg.contains("PERMISSION_DENIED", ignoreCase = true) ||
-                                                    displaySyncMsg.contains("insufficient permissions", ignoreCase = true)
-
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (isPermissionError || displaySyncMsg.contains("Error") || displaySyncMsg.contains("failed") || displaySyncMsg.contains("Secrets")) {
-                                        Color(0xFFEF4444).copy(alpha = 0.1f)
-                                    } else {
-                                        TealAccent.copy(alpha = 0.1f)
-                                    }
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = displaySyncMsg,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = if (isPermissionError || displaySyncMsg.contains("Error") || displaySyncMsg.contains("failed") || displaySyncMsg.contains("Secrets")) {
-                                        Color(0xFFF87171)
-                                    } else {
-                                        TealAccent
-                                    },
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
-
-                            if (isPermissionError) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = Color(0xFF1E1E1E),
-                                        contentColor = Color.White
-                                    ),
-                                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Warning,
-                                                contentDescription = "Firestore Rules Required",
-                                                tint = Color(0xFFF59E0B),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                            Text(
-                                                text = "Firestore Security Rules Required",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp,
-                                                color = Color(0xFFF59E0B)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "A 'permission-denied' response means your Cloud Firestore Database rules block the application from saving/restoring backup data. By default, newly created Firestore databases deny all reads and writes. To resolve this:",
-                                            fontSize = 12.sp,
-                                            color = Color.White,
-                                            lineHeight = 16.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = "1. Open your Firebase Console and select your project.\n" +
-                                                   "2. Navigate to Build > Firestore Database.\n" +
-                                                   "3. Click the Rules tab.\n" +
-                                                   "4. Copy and paste the secure user-isolated rules below:",
-                                            fontSize = 12.sp,
-                                            color = GrayText,
-                                            lineHeight = 18.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        
-                                        // Code snippet block
-                                        Card(
-                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Column(modifier = Modifier.padding(12.dp)) {
-                                                Text(
-                                                    text = "rules_version = '2';\n" +
-                                                           "service cloud.firestore {\n" +
-                                                           "  match /databases/{database}/documents {\n" +
-                                                           "    match /users/{userId}/{document=**} {\n" +
-                                                           "      allow read, write: if request.auth != null && request.auth.uid == userId;\n" +
-                                                           "    }\n" +
-                                                           "  }\n" +
-                                                           "}",
-                                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                                    fontSize = 10.sp,
-                                                    color = TealAccent,
-                                                    lineHeight = 14.sp
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = "5. Click Publish to apply the rules. Once applied, click \"Sync Now\" above to backup and restore successfully!",
-                                            fontSize = 12.sp,
-                                            color = Color.White,
-                                            lineHeight = 16.sp
-                                        )
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -1080,9 +1084,17 @@ fun GoogleCircularLetter(
     } else if (!photoUrl.isNullOrBlank()) {
         // Official Google Profile Picture from Google Sign-In
         var imageLoadFailed by remember(photoUrl) { mutableStateOf(false) }
+        val context = LocalContext.current
+        val imageRequest = remember(photoUrl) {
+            ImageRequest.Builder(context)
+                .data(photoUrl)
+                .crossfade(true)
+                .allowHardware(true)
+                .build()
+        }
         if (!imageLoadFailed) {
             AsyncImage(
-                model = photoUrl,
+                model = imageRequest,
                 contentDescription = name.ifEmpty { "Google Account" },
                 contentScale = ContentScale.Crop,
                 modifier = modifier

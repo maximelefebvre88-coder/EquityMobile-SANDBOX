@@ -712,7 +712,7 @@ class FinanceViewModel(
     val firebaseAuthStatusMessage = MutableStateFlow<String?>(null)
     val isFirebaseSyncing = MutableStateFlow(false)
 
-    fun signInWithGoogleIdToken(idToken: String) {
+    fun signInWithGoogleIdToken(idToken: String, photoUrl: String? = null, displayName: String? = null) {
         viewModelScope.launch {
             val fm = firebaseManager
             if (fm == null) {
@@ -721,7 +721,7 @@ class FinanceViewModel(
             }
             isFirebaseSyncing.value = true
             firebaseAuthStatusMessage.value = "Authenticating with Google..."
-            val r = fm.signInWithGoogleIdToken(idToken)
+            val r = fm.signInWithGoogleIdToken(idToken, photoUrl, displayName)
             isFirebaseSyncing.value = false
             if (r.isSuccess) {
                 firebaseAuthStatusMessage.value = "Authenticated & Cloud Synced!"

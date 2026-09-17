@@ -8,9 +8,11 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.CalculatorSnapshotEntity
 import com.example.data.local.TradeLogEntity
 import com.example.data.local.WatchlistTickerEntity
+import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -78,11 +80,13 @@ class FirebaseManager(private val context: Context) {
                 auth?.addAuthStateListener { firebaseAuth ->
                     val user = firebaseAuth.currentUser
                     if (user != null) {
+                        val photo = extractPhotoUrl(user)
+                        val name = extractDisplayName(user)
                         authState.value = FirebaseAuthState.SignedIn(
                             uid = user.uid,
                             email = user.email ?: "",
-                            displayName = user.displayName ?: "",
-                            photoUrl = user.photoUrl?.toString()
+                            displayName = name,
+                            photoUrl = photo
                         )
                         startRealtimeSync(user.uid)
                     } else {
@@ -103,6 +107,26 @@ class FirebaseManager(private val context: Context) {
             Log.e("FirebaseManager", "Error initializing Firebase: ${e.message}", e)
         }
         return false
+    }
+
+    private fun extractPhotoUrl(user: FirebaseUser?, photoOverride: String? = null): String? {
+        if (!photoOverride.isNullOrBlank()) return photoOverride
+        if (user == null) return GoogleSignIn.getLastSignedInAccount(context)?.photoUrl?.toString()
+        return user.photoUrl?.toString()
+            ?: user.providerData.firstOrNull { it.photoUrl != null }?.photoUrl?.toString()
+            ?: GoogleSignIn.getLastSignedInAccount(context)?.photoUrl?.toString()
+    }
+
+    private fun extractDisplayName(user: FirebaseUser?, nameOverride: String? = null): String {
+        if (!nameOverride.isNullOrBlank()) return nameOverride
+        if (user == null) return GoogleSignIn.getLastSignedInAccount(context)?.displayName ?: ""
+        val fbName = user.displayName ?: ""
+        if (fbName.isNotEmpty()) return fbName
+        val providerName = user.providerData.firstOrNull { !it.displayName.isNullOrEmpty() }?.displayName ?: ""
+        if (providerName.isNotEmpty()) return providerName
+        val googleName = GoogleSignIn.getLastSignedInAccount(context)?.displayName ?: ""
+        if (googleName.isNotEmpty()) return googleName
+        return user.email ?: ""
     }
 
     private fun getStringResourceByName(name: String): String {
@@ -160,7 +184,11 @@ class FirebaseManager(private val context: Context) {
         return auth?.currentUser?.uid
     }
 
-    suspend fun signInWithGoogleIdToken(idToken: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun signInWithGoogleIdToken(
+        idToken: String,
+        photoUrl: String? = null,
+        displayName: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
         if (!isReady()) {
             return@withContext Result.failure(Exception("Firebase not initialized. Please configure settings first."))
         }
@@ -169,13 +197,31 @@ class FirebaseManager(private val context: Context) {
             val authResult = auth!!.signInWithCredential(credential).await()
             val user = authResult.user
             if (user != null) {
+                val resolvedPhoto = extractPhotoUrl(user, photoUrl)
+                val resolvedName = extractDisplayName(user, displayName)
                 val userState = FirebaseAuthState.SignedIn(
                     uid = user.uid,
                     email = user.email ?: "",
-                    displayName = user.displayName ?: "",
-                    photoUrl = user.photoUrl?.toString()
+                    displayName = resolvedName,
+                    photoUrl = resolvedPhoto
                 )
                 authState.value = userState
+
+                // Sync profile metadata to Firestore users collection
+                try {
+                    val profileData = hashMapOf<String, Any?>(
+                        "uid" to user.uid,
+                        "email" to (user.email ?: ""),
+                        "displayName" to resolvedName,
+                        "photoUrl" to resolvedPhoto,
+                        "lastSignInTime" to System.currentTimeMillis()
+                    )
+                    firestore!!.collection("users").document(user.uid)
+                        .set(profileData, SetOptions.merge())
+                } catch (e: Exception) {
+                    Log.w("FirebaseManager", "Could not sync user profile document: ${e.message}")
+                }
+
                 startRealtimeSync(user.uid)
                 syncDataAcrossDevices()
                 Result.success(user.email ?: "Success")
