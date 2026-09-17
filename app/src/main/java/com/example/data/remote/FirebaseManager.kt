@@ -299,6 +299,7 @@ class FirebaseManager(private val context: Context) {
                         "lastFetched" to local.lastFetched,
                         "manuallyEnteredCostBasis" to local.manuallyEnteredCostBasis,
                         "targetPrice" to local.targetPrice,
+                        "targetYield" to local.targetYield,
                         "logoUrl" to local.logoUrl,
                         "displayOrder" to local.displayOrder,
                         "changePercent" to local.changePercent
@@ -321,6 +322,7 @@ class FirebaseManager(private val context: Context) {
             val lastFetched = remoteDoc.getLong("lastFetched") ?: 0L
             val manuallyEnteredCostBasis = remoteDoc.getDouble("manuallyEnteredCostBasis")
             val targetPrice = remoteDoc.getDouble("targetPrice")
+            val targetYield = remoteDoc.getDouble("targetYield")
             val logoUrl = remoteDoc.getString("logoUrl")
             val displayOrder = remoteDoc.getLong("displayOrder")?.toInt() ?: 0
             val changePercent = remoteDoc.getDouble("changePercent")
@@ -333,6 +335,7 @@ class FirebaseManager(private val context: Context) {
                     lastFetched = lastFetched,
                     manuallyEnteredCostBasis = manuallyEnteredCostBasis,
                     targetPrice = targetPrice,
+                    targetYield = targetYield,
                     logoUrl = logoUrl,
                     displayOrder = displayOrder,
                     changePercent = changePercent
@@ -348,8 +351,8 @@ class FirebaseManager(private val context: Context) {
                 if (local.manuallyEnteredCostBasis != manuallyEnteredCostBasis) {
                     tickerDao.updateCostBasis(symbol, manuallyEnteredCostBasis)
                 }
-                if (local.targetPrice != targetPrice) {
-                    tickerDao.updateTargetPrice(symbol, targetPrice)
+                if (local.targetPrice != targetPrice || local.targetYield != targetYield) {
+                    tickerDao.updateTargetPriceAndYield(symbol, targetPrice, targetYield)
                 }
                 if (local.displayOrder != displayOrder) {
                     tickerDao.updateDisplayOrder(symbol, displayOrder)
@@ -605,6 +608,7 @@ class FirebaseManager(private val context: Context) {
             "lastFetched" to ticker.lastFetched,
             "manuallyEnteredCostBasis" to ticker.manuallyEnteredCostBasis,
             "targetPrice" to ticker.targetPrice,
+            "targetYield" to ticker.targetYield,
             "logoUrl" to ticker.logoUrl,
             "displayOrder" to ticker.displayOrder,
             "changePercent" to ticker.changePercent

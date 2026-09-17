@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import android.content.Context
+import com.example.EquityIQApplication
 import com.example.data.CryptoManager
 import com.example.data.local.*
 import com.example.data.remote.*
@@ -272,6 +273,32 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
 
     override suspend fun updateTargetPrice(symbol: String, targetPrice: Double?) = withContext(Dispatchers.IO) {
         tickerDao.updateTargetPrice(symbol, targetPrice)
+
+        // Sync with Firebase
+        val firebaseManager = (context.applicationContext as? EquityIQApplication)?.container?.firebaseManager
+        if (firebaseManager != null && firebaseManager.isReady()) {
+            val ticker = tickerDao.getTickerBySymbol(symbol)
+            if (ticker != null) {
+                firebaseManager.syncWatchlistSingle(ticker)
+            }
+        }
+    }
+
+    override suspend fun updateTargetYield(symbol: String, targetYield: Double?) = withContext(Dispatchers.IO) {
+        tickerDao.updateTargetYield(symbol, targetYield)
+
+        // Sync with Firebase
+        val firebaseManager = (context.applicationContext as? EquityIQApplication)?.container?.firebaseManager
+        if (firebaseManager != null && firebaseManager.isReady()) {
+            val ticker = tickerDao.getTickerBySymbol(symbol)
+            if (ticker != null) {
+                firebaseManager.syncWatchlistSingle(ticker)
+            }
+        }
+    }
+
+    override suspend fun updateTargetPriceAndYield(symbol: String, targetPrice: Double?, targetYield: Double?) = withContext(Dispatchers.IO) {
+        tickerDao.updateTargetPriceAndYield(symbol, targetPrice, targetYield)
 
         // Sync with Firebase
         val firebaseManager = (context.applicationContext as? com.example.EquityIQApplication)?.container?.firebaseManager

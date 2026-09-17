@@ -32,6 +32,12 @@ interface TickerDao {
     @Query("UPDATE watchlist_tickers SET targetPrice = :targetPrice WHERE symbol = :symbol")
     suspend fun updateTargetPrice(symbol: String, targetPrice: Double?)
 
+    @Query("UPDATE watchlist_tickers SET targetYield = :targetYield WHERE symbol = :symbol")
+    suspend fun updateTargetYield(symbol: String, targetYield: Double?)
+
+    @Query("UPDATE watchlist_tickers SET targetPrice = :targetPrice, targetYield = :targetYield WHERE symbol = :symbol")
+    suspend fun updateTargetPriceAndYield(symbol: String, targetPrice: Double?, targetYield: Double?)
+
     @Query("UPDATE watchlist_tickers SET displayOrder = :displayOrder WHERE symbol = :symbol")
     suspend fun updateDisplayOrder(symbol: String, displayOrder: Int)
 

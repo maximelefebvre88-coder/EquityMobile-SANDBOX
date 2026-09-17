@@ -10,6 +10,7 @@ data class WatchlistTicker(
     val lastFetched: Long = 0L,
     val manuallyEnteredCostBasis: Double? = null,
     val targetPrice: Double? = null,
+    val targetYield: Double? = null,
     val logoUrl: String? = null,
     val displayOrder: Int = 0,
     val changePercent: Double? = null

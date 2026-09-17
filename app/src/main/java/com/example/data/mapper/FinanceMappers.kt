@@ -16,6 +16,7 @@ fun WatchlistTickerEntity.toDomain(): WatchlistTicker {
         lastFetched = lastFetched,
         manuallyEnteredCostBasis = manuallyEnteredCostBasis,
         targetPrice = targetPrice,
+        targetYield = targetYield,
         logoUrl = logoUrl,
         displayOrder = displayOrder,
         changePercent = changePercent
@@ -30,6 +31,7 @@ fun WatchlistTicker.toEntity(): WatchlistTickerEntity {
         lastFetched = lastFetched,
         manuallyEnteredCostBasis = manuallyEnteredCostBasis,
         targetPrice = targetPrice,
+        targetYield = targetYield,
         logoUrl = logoUrl,
         displayOrder = displayOrder,
         changePercent = changePercent

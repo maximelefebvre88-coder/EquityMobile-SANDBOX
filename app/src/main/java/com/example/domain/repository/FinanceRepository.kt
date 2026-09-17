@@ -25,6 +25,8 @@ interface FinanceRepository {
     suspend fun removeTicker(symbol: String)
     suspend fun updateManualCostBasis(symbol: String, costBasis: Double?)
     suspend fun updateTargetPrice(symbol: String, targetPrice: Double?)
+    suspend fun updateTargetYield(symbol: String, targetYield: Double?)
+    suspend fun updateTargetPriceAndYield(symbol: String, targetPrice: Double?, targetYield: Double?)
     suspend fun swapWatchlistItems(symbol1: String, symbol2: String)
     suspend fun updateWatchlistOrder(orderedSymbols: List<String>)
 

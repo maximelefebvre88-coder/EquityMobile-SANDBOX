@@ -286,6 +286,18 @@ class FinanceViewModel(
         }
     }
 
+    fun updateTickerTargetYield(symbol: String, targetYield: Double?) {
+        viewModelScope.launch {
+            useCases.updateTargetYield(symbol, targetYield)
+        }
+    }
+
+    fun updateTickerTargets(symbol: String, targetPrice: Double?, targetYield: Double?) {
+        viewModelScope.launch {
+            useCases.updateTargetPriceAndYield(symbol, targetPrice, targetYield)
+        }
+    }
+
     // Search function with debounce
     fun searchSymbols(query: String) {
         if (query.length < 2) {

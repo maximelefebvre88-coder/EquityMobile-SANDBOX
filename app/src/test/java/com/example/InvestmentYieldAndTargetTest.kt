@@ -1,6 +1,8 @@
 package com.example
 
+import com.example.domain.model.CalculatorSnapshot
 import com.example.domain.model.TradeEntity
+import com.example.domain.model.WatchlistTicker
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -94,5 +96,46 @@ class InvestmentYieldAndTargetTest {
         val desiredYield = 6.25
         val calculatedPrice = fcfPerShare / (desiredYield / 100.0)
         assertEquals(40.00, calculatedPrice, 0.001)
+    }
+
+    @Test
+    fun testExplicitTargetYieldDoesNotAlterCorporateBaseline() {
+        val ticker = WatchlistTicker(
+            symbol = "TEST",
+            companyName = "Test Co",
+            targetPrice = 100.0,
+            targetYield = 7.5
+        )
+
+        val snapshot = CalculatorSnapshot(
+            symbol = "TEST",
+            currentPrice = 90.0,
+            fcfPerShare = 4.50,
+            revenuePerShare = 30.0,
+            fcfMarginPercent = 15.0,
+            roicPercent = 18.0,
+            netCashPerShare = 5.0,
+            sharesOutstanding = 10_000_000.0,
+            marketCap = 900_000_000.0,
+            fcfGrowthRate = 8.0,
+            equityGrowthRate = 8.0,
+            fundamentalGrowthRate = 8.0,
+            historicalFcfMargin = 15.0,
+            riskFreeRate = 4.0,
+            riskPremium = 5.0,
+            terminalGrowthRate = 2.5,
+            highGrowthYears = 5,
+            historicalFcfYield = 5.0,
+            lastFetched = 1000L
+        )
+
+        // Setting a user targetYield (e.g. 7.5%) is purely a personal benchmark
+        assertEquals(7.5, ticker.targetYield!!, 0.001)
+        assertEquals(100.0, ticker.targetPrice!!, 0.001)
+
+        // Baseline metrics remain exact financial statements data
+        assertEquals(4.50, snapshot.fcfPerShare, 0.001)
+        assertEquals(5.0, snapshot.netCashPerShare, 0.001)
+        assertEquals(5.0, snapshot.historicalFcfYield, 0.001)
     }
 }

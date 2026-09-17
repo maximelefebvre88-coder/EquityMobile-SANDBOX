@@ -143,8 +143,9 @@ fun PortfolioScreen(
     var stockFcfYieldInput by remember { mutableStateOf("") }
 
     LaunchedEffect(stockTickerInput, stockPriceInput, isBuyStockSelected) {
-        if (stockTickerInput.length >= 1 && isBuyStockSelected) {
-            val snapshot = viewModel.getCalculatorSnapshot(stockTickerInput.uppercase().trim())
+        if (stockTickerInput.isNotEmpty() && isBuyStockSelected) {
+            val sym = stockTickerInput.uppercase().trim()
+            val snapshot = allSnapshots[sym] ?: viewModel.getCalculatorSnapshot(sym)
             val price = stockPriceInput.toDoubleOrNull() ?: 0.0
             if (snapshot != null && price > 0.0 && snapshot.fcfPerShare > 0.0) {
                 stockFcfYieldInput = String.format(Locale.US, "%.2f", (snapshot.fcfPerShare / price) * 100.0)
@@ -158,6 +159,9 @@ fun PortfolioScreen(
                     stockFcfYieldInput = ""
                 }
             } else {
+                if (sym.length >= 1) {
+                    viewModel.syncTicker(sym, force = false)
+                }
                 stockFcfYieldInput = ""
             }
         } else {
@@ -787,28 +791,32 @@ fun PortfolioScreen(
                 var cachedSnapshotScore by remember(ticker.symbol) { mutableIntStateOf(0) }
                 LaunchedEffect(ticker.symbol, liveSnapshot) {
                     val snap = liveSnapshot ?: viewModel.getCalculatorSnapshot(ticker.symbol)
-                    snap?.let {
-                        if (it.currentPrice > 0.0) {
-                            cachedSnapshotPrice = it.currentPrice
+                    if (snap != null) {
+                        if (snap.currentPrice > 0.0) {
+                            cachedSnapshotPrice = snap.currentPrice
                         }
-                        cachedFcfPerShare = it.fcfPerShare
-                        cachedHistoricalFcfYield = it.historicalFcfYield
-                        val (adjustedDcf, _) = viewModel.calculateMoatQualityAdjustedDcf(it)
+                        cachedFcfPerShare = snap.fcfPerShare
+                        cachedHistoricalFcfYield = snap.historicalFcfYield
+                        val (adjustedDcf, _) = viewModel.calculateMoatQualityAdjustedDcf(snap)
                         cachedDcfVal = adjustedDcf
-                        val fcfSent = if (it.historicalFcfYield > 0.0 && it.fcfPerShare > 0.0) {
-                            it.fcfPerShare / (it.historicalFcfYield / 100.0)
+                        val fcfSent = if (snap.historicalFcfYield > 0.0 && snap.fcfPerShare > 0.0) {
+                            snap.fcfPerShare / (snap.historicalFcfYield / 100.0)
                         } else null
                         cachedMarketFcfSentimentVal = fcfSent
 
-                        val bsScore = calculateBalanceSheetHealthScore(it.cashOnHand, it.ltDebt, it.ttmFcf, it.interestCoverage)
-                        val conv = if (it.ttmNetIncome != 0.0) (it.ttmFcf / it.ttmNetIncome) * 100.0 else 0.0
-                        val pqScore = calculateProfitQualityRankScore(it.roicPercent, it.fcfMarginPercent, conv)
+                        val bsScore = calculateBalanceSheetHealthScore(snap.cashOnHand, snap.ltDebt, snap.ttmFcf, snap.interestCoverage)
+                        val conv = if (snap.ttmNetIncome != 0.0) (snap.ttmFcf / snap.ttmNetIncome) * 100.0 else 0.0
+                        val pqScore = calculateProfitQualityRankScore(snap.roicPercent, snap.fcfMarginPercent, conv)
                         cachedSnapshotScore = (bsScore + pqScore) / 2
                     }
-                    if (ticker.livePrice <= 0.0) {
+                    if (snap == null || ticker.livePrice <= 0.0) {
                         viewModel.syncTicker(ticker.symbol, force = false)
                     }
                 }
+
+                val effectiveSnapshot = liveSnapshot
+                val effectiveFcfPerShare = effectiveSnapshot?.fcfPerShare?.takeIf { it > 0.0 } ?: cachedFcfPerShare ?: 0.0
+                val effectiveHistoricalFcfYield = effectiveSnapshot?.historicalFcfYield?.takeIf { it > 0.0 } ?: cachedHistoricalFcfYield ?: 0.0
 
                 val evaluatedTotalScore = tickerScores[symClean]
                     ?: tickerScores[ticker.symbol]
@@ -828,7 +836,7 @@ fun PortfolioScreen(
                 }
 
                 // Unrealized P&L
-                val stockLivePrice = if (ticker.livePrice > 0.0) ticker.livePrice else (cachedSnapshotPrice ?: 0.0)
+                val stockLivePrice = if (ticker.livePrice > 0.0) ticker.livePrice else (effectiveSnapshot?.currentPrice ?: (cachedSnapshotPrice ?: 0.0))
                 val baseCostBasis = ticker.manuallyEnteredCostBasis ?: avgBuyPrice
                 val unrealizedPnL = if (assignedShares > 0) {
                     (stockLivePrice - baseCostBasis) * assignedShares
@@ -855,6 +863,14 @@ fun PortfolioScreen(
                         else -> 0
                     }
                 }
+
+                val liveFcfYieldBenchmark = when {
+                    effectiveFcfPerShare > 0.0 && stockLivePrice > 0.0 -> (effectiveFcfPerShare / stockLivePrice) * 100.0
+                    effectiveHistoricalFcfYield > 0.0 -> effectiveHistoricalFcfYield
+                    ticker.targetYield != null && ticker.targetYield > 0.0 -> ticker.targetYield
+                    else -> 0.0
+                }
+
                 val averageOwnersFcfYieldPct = if (totalBuySharesForYield > 0) {
                     val weightedFcfYieldSum = buyTrades.sumOf { trade ->
                         val qty = when (trade.tradeType) {
@@ -862,53 +878,48 @@ fun PortfolioScreen(
                             "Buying shares" -> trade.contracts
                             else -> 0
                         }
-                        val yieldOfTrade = if (trade.fcfYield > 0.0) {
-                            trade.fcfYield
-                        } else {
-                            val fcfPerShareVal = cachedFcfPerShare ?: 0.0
-                            if (fcfPerShareVal > 0.0 && trade.strikePrice > 0.0) {
-                                (fcfPerShareVal / trade.strikePrice) * 100.0
-                            } else {
-                                cachedHistoricalFcfYield ?: 0.0
-                            }
+                        val yieldOfTrade = when {
+                            trade.fcfYield > 0.0 -> trade.fcfYield
+                            effectiveFcfPerShare > 0.0 && trade.strikePrice > 0.0 -> (effectiveFcfPerShare / trade.strikePrice) * 100.0
+                            effectiveFcfPerShare > 0.0 && stockLivePrice > 0.0 -> (effectiveFcfPerShare / stockLivePrice) * 100.0
+                            effectiveHistoricalFcfYield > 0.0 -> effectiveHistoricalFcfYield
+                            ticker.targetYield != null && ticker.targetYield > 0.0 -> ticker.targetYield
+                            else -> liveFcfYieldBenchmark
                         }
                         qty * yieldOfTrade
                     }
-                    weightedFcfYieldSum / totalBuySharesForYield
+                    if (totalBuySharesForYield > 0) weightedFcfYieldSum / totalBuySharesForYield else liveFcfYieldBenchmark
                 } else {
-                    val fcfPerShareVal = cachedFcfPerShare ?: 0.0
-                    if (fcfPerShareVal > 0.0 && stockLivePrice > 0.0) {
-                        (fcfPerShareVal / stockLivePrice) * 100.0
-                    } else {
-                        cachedHistoricalFcfYield ?: 0.0
-                    }
+                    liveFcfYieldBenchmark
                 }
 
                 val estimatedAnnualFcfValue = if (assignedShares > 0) {
-                    val fcfPerShareVal = cachedFcfPerShare ?: run {
-                        val histYield = cachedHistoricalFcfYield ?: 0.0
-                        if (histYield > 0.0 && stockLivePrice > 0.0) {
-                            (histYield / 100.0) * stockLivePrice
-                        } else 0.0
+                    val fcfPerShareVal = when {
+                        effectiveFcfPerShare > 0.0 -> effectiveFcfPerShare
+                        effectiveHistoricalFcfYield > 0.0 && stockLivePrice > 0.0 -> (effectiveHistoricalFcfYield / 100.0) * stockLivePrice
+                        averageOwnersFcfYieldPct > 0.0 && activeCostBasis > 0.0 -> (averageOwnersFcfYieldPct / 100.0) * activeCostBasis
+                        averageOwnersFcfYieldPct > 0.0 && stockLivePrice > 0.0 -> (averageOwnersFcfYieldPct / 100.0) * stockLivePrice
+                        else -> 0.0
                     }
-                    if (fcfPerShareVal > 0.0) {
-                        fcfPerShareVal * assignedShares
-                    } else if (averageOwnersFcfYieldPct > 0.0 && activeCostBasis > 0.0) {
-                        (averageOwnersFcfYieldPct / 100.0) * activeCostBasis * assignedShares
-                    } else 0.0
+                    fcfPerShareVal * assignedShares
                 } else 0.0
 
                 var isEditingTargetPrice by remember(ticker.symbol) { mutableStateOf(false) }
                 var manualTargetInput by remember(ticker.symbol, ticker.targetPrice) {
-                    mutableStateOf(ticker.targetPrice?.toString() ?: "")
+                    mutableStateOf(ticker.targetPrice?.let { String.format(Locale.US, "%.2f", it) } ?: "")
                 }
-                var manualTargetYieldInput by remember(ticker.symbol, ticker.targetPrice, cachedFcfPerShare) {
-                    val fcf = cachedFcfPerShare ?: 0.0
-                    val tp = ticker.targetPrice
-                    val y = if (tp != null && tp > 0.0 && fcf > 0.0) {
-                        String.format(Locale.US, "%.2f", (fcf / tp) * 100.0)
-                    } else ""
-                    mutableStateOf(y)
+                var manualTargetYieldInput by remember(ticker.symbol, ticker.targetYield, ticker.targetPrice, cachedFcfPerShare) {
+                    val explicitYield = ticker.targetYield
+                    if (explicitYield != null && explicitYield > 0.0) {
+                        mutableStateOf(String.format(Locale.US, "%.2f", explicitYield))
+                    } else {
+                        val fcf = effectiveFcfPerShare
+                        val tp = ticker.targetPrice
+                        val y = if (tp != null && tp > 0.0 && fcf > 0.0) {
+                            String.format(Locale.US, "%.2f", (fcf / tp) * 100.0)
+                        } else ""
+                        mutableStateOf(y)
+                    }
                 }
 
                 Box(
@@ -1309,8 +1320,11 @@ fun PortfolioScreen(
 
                             // 3. Split Price Target & Yield Target Square (Left & Right Split)
                             val targetVal = ticker.targetPrice
+                            val explicitYield = ticker.targetYield
                             val fcfPerShareForTarget = cachedFcfPerShare ?: 0.0
-                            val targetYieldVal = if (targetVal != null && targetVal > 0.0 && fcfPerShareForTarget > 0.0) {
+                            val targetYieldVal = if (explicitYield != null && explicitYield > 0.0) {
+                                explicitYield
+                            } else if (targetVal != null && targetVal > 0.0 && fcfPerShareForTarget > 0.0) {
                                 (fcfPerShareForTarget / targetVal) * 100.0
                             } else null
                             val hasTarget = targetVal != null && targetVal > 0.0
@@ -1477,7 +1491,7 @@ fun PortfolioScreen(
                                 ) {
                                     TextButton(
                                         onClick = {
-                                            viewModel.updateTickerTargetPrice(ticker.symbol, null)
+                                            viewModel.updateTickerTargets(ticker.symbol, null, null)
                                             manualTargetInput = ""
                                             manualTargetYieldInput = ""
                                             isEditingTargetPrice = false
@@ -1488,13 +1502,9 @@ fun PortfolioScreen(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Button(
                                         onClick = {
-                                            val d = manualTargetInput.replace(',', '.').toDoubleOrNull()
-                                                ?: run {
-                                                    val y = manualTargetYieldInput.replace(',', '.').toDoubleOrNull()
-                                                    val fcf = cachedFcfPerShare ?: 0.0
-                                                    if (y != null && y > 0.0 && fcf > 0.0) fcf / (y / 100.0) else null
-                                                }
-                                            viewModel.updateTickerTargetPrice(ticker.symbol, d)
+                                            val targetPriceVal = manualTargetInput.replace(',', '.').toDoubleOrNull()
+                                            val targetYieldVal = manualTargetYieldInput.replace(',', '.').toDoubleOrNull()
+                                            viewModel.updateTickerTargets(ticker.symbol, targetPriceVal, targetYieldVal)
                                             isEditingTargetPrice = false
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = TealAccent),

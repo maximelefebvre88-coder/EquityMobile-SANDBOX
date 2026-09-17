@@ -34,6 +34,18 @@ class UpdateTargetPriceUseCase(private val repository: FinanceRepository) {
     }
 }
 
+class UpdateTargetYieldUseCase(private val repository: FinanceRepository) {
+    suspend operator fun invoke(symbol: String, targetYield: Double?) {
+        repository.updateTargetYield(symbol, targetYield)
+    }
+}
+
+class UpdateTargetPriceAndYieldUseCase(private val repository: FinanceRepository) {
+    suspend operator fun invoke(symbol: String, targetPrice: Double?, targetYield: Double?) {
+        repository.updateTargetPriceAndYield(symbol, targetPrice, targetYield)
+    }
+}
+
 class UpdateWatchlistOrderUseCase(private val repository: FinanceRepository) {
     suspend operator fun invoke(orderedSymbols: List<String>) {
         repository.updateWatchlistOrder(orderedSymbols)
