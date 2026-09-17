@@ -23,7 +23,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
@@ -130,7 +129,6 @@ fun PortfolioScreen(
 
     var isAmountsHidden by rememberSaveable { mutableStateOf(false) }
     var showAddCashDialog by remember { mutableStateOf(false) }
-    var tickerToRemove by remember { mutableStateOf<WatchlistTicker?>(null) }
     var depositAmountInput by remember { mutableStateOf("") }
     val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     var depositDateInput by remember { mutableStateOf(sdf.format(java.util.Date())) }
@@ -1132,69 +1130,49 @@ fun PortfolioScreen(
                                 }
                             }
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Column(horizontalAlignment = Alignment.End) {
-                                    val tickerCurrency = getTickerCurrency(ticker.symbol)
-                                    Text(
-                                        text = formatCurrency(stockLivePrice, tickerCurrency),
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = Color.White
-                                    )
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.End
-                                    ) {
-                                        val changePct = ticker.changePercent
-                                        if (changePct != null) {
-                                            val isPositive = changePct > 0.0001
-                                            val isNegative = changePct < -0.0001
-                                            val pctColor = when {
-                                                isPositive -> EmeraldGreen
-                                                isNegative -> RedLoss
-                                                else -> GrayText
-                                            }
-                                            val prefix = if (isPositive) "+" else ""
-                                            Text(
-                                                text = String.format(Locale.US, "%s%.2f%%", prefix, changePct),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = pctColor
-                                            )
-                                            Text(
-                                                text = " • ",
-                                                fontSize = 10.sp,
-                                                color = GrayText.copy(alpha = 0.5f)
-                                            )
+                            Column(horizontalAlignment = Alignment.End) {
+                                val tickerCurrency = getTickerCurrency(ticker.symbol)
+                                Text(
+                                    text = formatCurrency(stockLivePrice, tickerCurrency),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color.White
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    val changePct = ticker.changePercent
+                                    if (changePct != null) {
+                                        val isPositive = changePct > 0.0001
+                                        val isNegative = changePct < -0.0001
+                                        val pctColor = when {
+                                            isPositive -> EmeraldGreen
+                                            isNegative -> RedLoss
+                                            else -> GrayText
                                         }
+                                        val prefix = if (isPositive) "+" else ""
                                         Text(
-                                            text = if (liveFcfYield != null && liveFcfYield > 0.0) {
-                                                String.format(Locale.US, "%.2f%% FCF", liveFcfYield)
-                                            } else {
-                                                "FCF N/A"
-                                            },
+                                            text = String.format(Locale.US, "%s%.2f%%", prefix, changePct),
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (liveFcfYield != null && liveFcfYield > 0.0) AmberWarning else GrayText.copy(alpha = 0.6f)
+                                            color = pctColor
+                                        )
+                                        Text(
+                                            text = " • ",
+                                            fontSize = 10.sp,
+                                            color = GrayText.copy(alpha = 0.5f)
                                         )
                                     }
-                                }
-                                IconButton(
-                                    onClick = {
-                                        tickerToRemove = ticker
-                                    },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .testTag("portfolio_delete_ticker_${ticker.symbol}")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Remove Ticker",
-                                        tint = RedLoss.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(20.dp)
+                                    Text(
+                                        text = if (liveFcfYield != null && liveFcfYield > 0.0) {
+                                            String.format(Locale.US, "%.2f%% FCF", liveFcfYield)
+                                        } else {
+                                            "FCF N/A"
+                                        },
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (liveFcfYield != null && liveFcfYield > 0.0) AmberWarning else GrayText.copy(alpha = 0.6f)
                                     )
                                 }
                             }
@@ -2231,63 +2209,6 @@ fun PortfolioScreen(
                     modifier = Modifier.testTag("stock_transaction_cancel_button")
                 ) {
                     Text("CANCEL", color = GrayText)
-                }
-            },
-            containerColor = SurfCard,
-            shape = RoundedCornerShape(24.dp)
-        )
-    }
-
-    val targetTicker = tickerToRemove
-    if (targetTicker != null) {
-        AlertDialog(
-            onDismissRequest = { tickerToRemove = null },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = null,
-                    tint = RedLoss,
-                    modifier = Modifier.size(28.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "Remove ${targetTicker.symbol}?",
-                    color = LightText,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
-            },
-            text = {
-                Text(
-                    text = "Are you sure you want to remove ${targetTicker.symbol} (${targetTicker.companyName}) from your portfolio watchlist?",
-                    color = GrayText,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.removeTickerFromWatchlist(targetTicker.symbol)
-                        tickerToRemove = null
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = RedLoss,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.testTag("confirm_remove_stock_button")
-                ) {
-                    Text("Remove", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { tickerToRemove = null },
-                    modifier = Modifier.testTag("cancel_remove_stock_button")
-                ) {
-                    Text("Cancel", color = GrayText, fontWeight = FontWeight.SemiBold)
                 }
             },
             containerColor = SurfCard,
