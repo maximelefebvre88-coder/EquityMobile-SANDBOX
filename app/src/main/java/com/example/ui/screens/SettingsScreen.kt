@@ -47,7 +47,9 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import coil.request.CachePolicy
 import com.example.R
 import com.example.data.remote.FirebaseAuthState
 import com.example.data.remote.FirebaseSyncState
@@ -1083,29 +1085,31 @@ fun GoogleCircularLetter(
         }
     } else if (!photoUrl.isNullOrBlank()) {
         // Official Google Profile Picture from Google Sign-In
-        var imageLoadFailed by remember(photoUrl) { mutableStateOf(false) }
         val context = LocalContext.current
         val imageRequest = remember(photoUrl) {
             ImageRequest.Builder(context)
                 .data(photoUrl)
                 .crossfade(true)
                 .allowHardware(true)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .memoryCachePolicy(CachePolicy.ENABLED)
                 .build()
         }
-        if (!imageLoadFailed) {
-            AsyncImage(
-                model = imageRequest,
-                contentDescription = name.ifEmpty { "Google Account" },
-                contentScale = ContentScale.Crop,
-                modifier = modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .border(1.dp, Color(0xFFDADCE0).copy(alpha = 0.6f), CircleShape),
-                onError = { imageLoadFailed = true }
-            )
-        } else {
-            GoogleLetterAvatar(name = name, size = size, fontSize = fontSize, modifier = modifier)
-        }
+        SubcomposeAsyncImage(
+            model = imageRequest,
+            contentDescription = name.ifEmpty { "Google Account" },
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+                .size(size)
+                .clip(CircleShape)
+                .border(1.dp, Color(0xFFDADCE0).copy(alpha = 0.6f), CircleShape),
+            loading = {
+                GoogleLetterAvatar(name = name, size = size, fontSize = fontSize, modifier = Modifier.fillMaxSize())
+            },
+            error = {
+                GoogleLetterAvatar(name = name, size = size, fontSize = fontSize, modifier = Modifier.fillMaxSize())
+            }
+        )
     } else {
         GoogleLetterAvatar(name = name, size = size, fontSize = fontSize, modifier = modifier)
     }

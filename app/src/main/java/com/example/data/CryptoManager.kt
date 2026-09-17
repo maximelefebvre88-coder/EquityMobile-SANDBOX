@@ -157,5 +157,65 @@ class CryptoManager(private val context: Context) {
             .putString("FIREBASE_CLIENT_ID", cleanCliId)
             .apply()
     }
+
+    // User Profile Cache Persistence
+    fun saveUserProfile(uid: String, email: String, displayName: String, photoUrl: String?) {
+        val cleanUid = cleanKey(uid)
+        val cleanEmail = cleanKey(email)
+        val cleanName = cleanKey(displayName)
+        val cleanPhoto = photoUrl?.let { cleanKey(it) } ?: ""
+        securePrefs?.edit()
+            ?.putString("CACHED_USER_UID", cleanUid)
+            ?.putString("CACHED_USER_EMAIL", cleanEmail)
+            ?.putString("CACHED_USER_NAME", cleanName)
+            ?.putString("CACHED_USER_PHOTO", cleanPhoto)
+            ?.apply()
+        regularPrefs.edit()
+            .putString("CACHED_USER_UID", cleanUid)
+            .putString("CACHED_USER_EMAIL", cleanEmail)
+            .putString("CACHED_USER_NAME", cleanName)
+            .putString("CACHED_USER_PHOTO", cleanPhoto)
+            .apply()
+    }
+
+    fun getCachedUserUid(): String {
+        val v = securePrefs?.getString("CACHED_USER_UID", "") ?: ""
+        if (v.isNotEmpty()) return cleanKey(v)
+        return cleanKey(regularPrefs.getString("CACHED_USER_UID", "") ?: "")
+    }
+
+    fun getCachedUserEmail(): String {
+        val v = securePrefs?.getString("CACHED_USER_EMAIL", "") ?: ""
+        if (v.isNotEmpty()) return cleanKey(v)
+        return cleanKey(regularPrefs.getString("CACHED_USER_EMAIL", "") ?: "")
+    }
+
+    fun getCachedUserDisplayName(): String {
+        val v = securePrefs?.getString("CACHED_USER_NAME", "") ?: ""
+        if (v.isNotEmpty()) return cleanKey(v)
+        return cleanKey(regularPrefs.getString("CACHED_USER_NAME", "") ?: "")
+    }
+
+    fun getCachedUserPhotoUrl(): String? {
+        val v = securePrefs?.getString("CACHED_USER_PHOTO", "") ?: ""
+        if (v.isNotEmpty()) return cleanKey(v).ifEmpty { null }
+        val reg = regularPrefs.getString("CACHED_USER_PHOTO", "") ?: ""
+        return cleanKey(reg).ifEmpty { null }
+    }
+
+    fun clearCachedUserProfile() {
+        securePrefs?.edit()
+            ?.remove("CACHED_USER_UID")
+            ?.remove("CACHED_USER_EMAIL")
+            ?.remove("CACHED_USER_NAME")
+            ?.remove("CACHED_USER_PHOTO")
+            ?.apply()
+        regularPrefs.edit()
+            .remove("CACHED_USER_UID")
+            .remove("CACHED_USER_EMAIL")
+            .remove("CACHED_USER_NAME")
+            .remove("CACHED_USER_PHOTO")
+            .apply()
+    }
 }
 

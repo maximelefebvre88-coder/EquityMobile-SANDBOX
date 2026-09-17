@@ -42,6 +42,15 @@ class FirebaseManager(private val context: Context) {
     private val listenerRegistrations = mutableListOf<ListenerRegistration>()
 
     init {
+        val cachedUid = cryptoManager.getCachedUserUid()
+        if (cachedUid.isNotEmpty()) {
+            authState.value = FirebaseAuthState.SignedIn(
+                uid = cachedUid,
+                email = cryptoManager.getCachedUserEmail(),
+                displayName = cryptoManager.getCachedUserDisplayName(),
+                photoUrl = cryptoManager.getCachedUserPhotoUrl()
+            )
+        }
         trySetupFirebase()
     }
 
@@ -82,6 +91,7 @@ class FirebaseManager(private val context: Context) {
                     if (user != null) {
                         val photo = extractPhotoUrl(user)
                         val name = extractDisplayName(user)
+                        cryptoManager.saveUserProfile(user.uid, user.email ?: "", name, photo)
                         authState.value = FirebaseAuthState.SignedIn(
                             uid = user.uid,
                             email = user.email ?: "",
@@ -89,15 +99,38 @@ class FirebaseManager(private val context: Context) {
                             photoUrl = photo
                         )
                         startRealtimeSync(user.uid)
+                        if (photo.isNullOrBlank()) {
+                            scope.launch {
+                                fetchRemoteUserProfile(user.uid)
+                            }
+                        }
                     } else {
-                        authState.value = FirebaseAuthState.SignedOut
-                        stopRealtimeSync()
+                        val lastGoogle = GoogleSignIn.getLastSignedInAccount(context)
+                        if (lastGoogle == null) {
+                            cryptoManager.clearCachedUserProfile()
+                            authState.value = FirebaseAuthState.SignedOut
+                            stopRealtimeSync()
+                        }
                     }
                 }
 
                 val initialUser = auth?.currentUser
                 if (initialUser != null) {
+                    val photo = extractPhotoUrl(initialUser)
+                    val name = extractDisplayName(initialUser)
+                    cryptoManager.saveUserProfile(initialUser.uid, initialUser.email ?: "", name, photo)
+                    authState.value = FirebaseAuthState.SignedIn(
+                        uid = initialUser.uid,
+                        email = initialUser.email ?: "",
+                        displayName = name,
+                        photoUrl = photo
+                    )
                     startRealtimeSync(initialUser.uid)
+                    if (photo.isNullOrBlank()) {
+                        scope.launch {
+                            fetchRemoteUserProfile(initialUser.uid)
+                        }
+                    }
                 }
 
                 Log.d("FirebaseManager", "Firebase successfully initialized.")
@@ -109,24 +142,49 @@ class FirebaseManager(private val context: Context) {
         return false
     }
 
+    private suspend fun fetchRemoteUserProfile(uid: String) {
+        try {
+            val userDoc = firestore?.collection("users")?.document(uid)?.get()?.await()
+            if (userDoc != null && userDoc.exists()) {
+                val remotePhoto = userDoc.getString("photoUrl")
+                val remoteName = userDoc.getString("displayName")
+                val current = authState.value
+                if (!remotePhoto.isNullOrBlank() && current is FirebaseAuthState.SignedIn) {
+                    val updatedName = if (current.displayName.isNotBlank()) current.displayName else (remoteName ?: "")
+                    cryptoManager.saveUserProfile(current.uid, current.email, updatedName, remotePhoto)
+                    authState.value = current.copy(photoUrl = remotePhoto, displayName = updatedName)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("FirebaseManager", "Error fetching remote user profile: ${e.message}")
+        }
+    }
+
     private fun extractPhotoUrl(user: FirebaseUser?, photoOverride: String? = null): String? {
         if (!photoOverride.isNullOrBlank()) return photoOverride
-        if (user == null) return GoogleSignIn.getLastSignedInAccount(context)?.photoUrl?.toString()
-        return user.photoUrl?.toString()
-            ?: user.providerData.firstOrNull { it.photoUrl != null }?.photoUrl?.toString()
-            ?: GoogleSignIn.getLastSignedInAccount(context)?.photoUrl?.toString()
+        val cached = cryptoManager.getCachedUserPhotoUrl()
+        if (!cached.isNullOrBlank()) return cached
+        val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+        if (googleAccount?.photoUrl != null) return googleAccount.photoUrl.toString()
+        if (user == null) return null
+        val uPhoto = user.photoUrl?.toString()
+        if (!uPhoto.isNullOrBlank()) return uPhoto
+        val providerPhoto = user.providerData.firstOrNull { it.photoUrl != null }?.photoUrl?.toString()
+        if (!providerPhoto.isNullOrBlank()) return providerPhoto
+        return null
     }
 
     private fun extractDisplayName(user: FirebaseUser?, nameOverride: String? = null): String {
         if (!nameOverride.isNullOrBlank()) return nameOverride
-        if (user == null) return GoogleSignIn.getLastSignedInAccount(context)?.displayName ?: ""
-        val fbName = user.displayName ?: ""
+        val cached = cryptoManager.getCachedUserDisplayName()
+        if (cached.isNotBlank()) return cached
+        val fbName = user?.displayName ?: ""
         if (fbName.isNotEmpty()) return fbName
-        val providerName = user.providerData.firstOrNull { !it.displayName.isNullOrEmpty() }?.displayName ?: ""
+        val providerName = user?.providerData?.firstOrNull { !it.displayName.isNullOrEmpty() }?.displayName ?: ""
         if (providerName.isNotEmpty()) return providerName
         val googleName = GoogleSignIn.getLastSignedInAccount(context)?.displayName ?: ""
         if (googleName.isNotEmpty()) return googleName
-        return user.email ?: ""
+        return user?.email ?: ""
     }
 
     private fun getStringResourceByName(name: String): String {
@@ -199,6 +257,7 @@ class FirebaseManager(private val context: Context) {
             if (user != null) {
                 val resolvedPhoto = extractPhotoUrl(user, photoUrl)
                 val resolvedName = extractDisplayName(user, displayName)
+                cryptoManager.saveUserProfile(user.uid, user.email ?: "", resolvedName, resolvedPhoto)
                 val userState = FirebaseAuthState.SignedIn(
                     uid = user.uid,
                     email = user.email ?: "",
@@ -235,6 +294,7 @@ class FirebaseManager(private val context: Context) {
 
     fun signOut() {
         stopRealtimeSync()
+        cryptoManager.clearCachedUserProfile()
         scope.launch {
             try {
                 db.tickerDao().deleteAllTickers()
