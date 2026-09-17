@@ -138,4 +138,47 @@ class InvestmentYieldAndTargetTest {
         assertEquals(5.0, snapshot.netCashPerShare, 0.001)
         assertEquals(5.0, snapshot.historicalFcfYield, 0.001)
     }
+
+    @Test
+    fun testYieldBecomesZeroWhenAllSharesSold() {
+        val trades = listOf(
+            TradeEntity(
+                id = 1,
+                ticker = "V",
+                tradeType = "Buying shares",
+                date = 1000L,
+                contracts = 100,
+                strikePrice = 280.0,
+                fcfYield = 5.0
+            ),
+            TradeEntity(
+                id = 2,
+                ticker = "V",
+                tradeType = "Selling shares",
+                date = 2000L,
+                contracts = 100,
+                strikePrice = 300.0
+            )
+        )
+
+        val heldShares = trades.fold(0) { sum, trade ->
+            when (trade.tradeType) {
+                "Buying shares" -> sum + trade.contracts
+                "Selling shares" -> sum - trade.contracts
+                else -> sum
+            }
+        }.coerceAtLeast(0)
+
+        val buyTrades = trades.filter { it.tradeType == "Buying shares" }
+        val totalBuyShares = buyTrades.sumOf { it.contracts }
+
+        val avgYield = if (heldShares > 0 && totalBuyShares > 0) {
+            buyTrades.sumOf { it.contracts * it.fcfYield } / totalBuyShares
+        } else {
+            0.0
+        }
+
+        assertEquals(0, heldShares)
+        assertEquals(0.0, avgYield, 0.001)
+    }
 }

@@ -864,14 +864,7 @@ fun PortfolioScreen(
                     }
                 }
 
-                val liveFcfYieldBenchmark = when {
-                    effectiveFcfPerShare > 0.0 && stockLivePrice > 0.0 -> (effectiveFcfPerShare / stockLivePrice) * 100.0
-                    effectiveHistoricalFcfYield > 0.0 -> effectiveHistoricalFcfYield
-                    ticker.targetYield != null && ticker.targetYield > 0.0 -> ticker.targetYield
-                    else -> 0.0
-                }
-
-                val averageOwnersFcfYieldPct = if (totalBuySharesForYield > 0) {
+                val averageOwnersFcfYieldPct = if (assignedShares > 0 && totalBuySharesForYield > 0) {
                     val weightedFcfYieldSum = buyTrades.sumOf { trade ->
                         val qty = when (trade.tradeType) {
                             "Assignment", "Sell CSP" -> trade.contracts * 100
@@ -884,13 +877,13 @@ fun PortfolioScreen(
                             effectiveFcfPerShare > 0.0 && stockLivePrice > 0.0 -> (effectiveFcfPerShare / stockLivePrice) * 100.0
                             effectiveHistoricalFcfYield > 0.0 -> effectiveHistoricalFcfYield
                             ticker.targetYield != null && ticker.targetYield > 0.0 -> ticker.targetYield
-                            else -> liveFcfYieldBenchmark
+                            else -> 0.0
                         }
                         qty * yieldOfTrade
                     }
-                    if (totalBuySharesForYield > 0) weightedFcfYieldSum / totalBuySharesForYield else liveFcfYieldBenchmark
+                    if (totalBuySharesForYield > 0) weightedFcfYieldSum / totalBuySharesForYield else 0.0
                 } else {
-                    liveFcfYieldBenchmark
+                    0.0
                 }
 
                 val estimatedAnnualFcfValue = if (assignedShares > 0) {
@@ -908,7 +901,7 @@ fun PortfolioScreen(
                 var manualTargetInput by remember(ticker.symbol, ticker.targetPrice) {
                     mutableStateOf(ticker.targetPrice?.let { String.format(Locale.US, "%.2f", it) } ?: "")
                 }
-                var manualTargetYieldInput by remember(ticker.symbol, ticker.targetYield, ticker.targetPrice, cachedFcfPerShare) {
+                var manualTargetYieldInput by remember(ticker.symbol, ticker.targetYield, ticker.targetPrice, effectiveFcfPerShare) {
                     val explicitYield = ticker.targetYield
                     if (explicitYield != null && explicitYield > 0.0) {
                         mutableStateOf(String.format(Locale.US, "%.2f", explicitYield))
