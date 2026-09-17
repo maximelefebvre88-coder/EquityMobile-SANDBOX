@@ -208,10 +208,11 @@ class FinanceViewModel(
         geminiTestState.value = ApiKeyTestState.Idle
     }
 
-    fun testFinnhubApiKey(key: String) {
+    fun testFinnhubApiKey(key: String = "") {
         viewModelScope.launch {
             finnhubTestState.value = ApiKeyTestState.Testing
-            val res = useCases.repository.testFinnhubConnection(key)
+            val activeKey = if (key.isNotBlank()) key else useCases.repository.getApiKey()
+            val res = useCases.repository.testFinnhubConnection(activeKey)
             res.onSuccess {
                 finnhubTestState.value = ApiKeyTestState.Success(it)
             }.onFailure {
@@ -220,10 +221,11 @@ class FinanceViewModel(
         }
     }
 
-    fun testGeminiApiKey(key: String) {
+    fun testGeminiApiKey(key: String = "") {
         viewModelScope.launch {
             geminiTestState.value = ApiKeyTestState.Testing
-            val res = useCases.repository.testGeminiConnection(key)
+            val activeKey = if (key.isNotBlank()) key else useCases.repository.getGeminiApiKey()
+            val res = useCases.repository.testGeminiConnection(activeKey)
             res.onSuccess {
                 geminiTestState.value = ApiKeyTestState.Success(it)
             }.onFailure {
