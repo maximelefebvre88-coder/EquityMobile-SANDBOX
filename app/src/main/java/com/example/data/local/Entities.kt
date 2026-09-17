@@ -81,6 +81,7 @@ data class CalculatorSnapshotEntity(
     val ttmFcf: Double = 0.0,
     val cashOnHand: Double = 0.0,
     val ltDebt: Double = 0.0,
+    val interestCoverage: Double = 0.0,
     val ttmNetIncome: Double = 0.0,
     val checkedQualitativeTitles: String = ""
 )

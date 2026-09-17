@@ -379,7 +379,8 @@ class FinanceViewModel(
                 val bsScore = calculateBalanceSheetHealthScore(
                     cashOnHand = snap.cashOnHand,
                     longTermDebt = snap.ltDebt,
-                    freeCashFlow = snap.ttmFcf
+                    freeCashFlow = snap.ttmFcf,
+                    interestCoverage = snap.interestCoverage
                 )
                 val dbFcfConversion = if (snap.ttmNetIncome != 0.0) {
                     (snap.ttmFcf / snap.ttmNetIncome) * 100.0
@@ -637,7 +638,8 @@ class FinanceViewModel(
         val bsScore = calculateBalanceSheetHealthScore(
             cashOnHand = snapshot.cashOnHand,
             longTermDebt = snapshot.ltDebt,
-            freeCashFlow = snapshot.ttmFcf
+            freeCashFlow = snapshot.ttmFcf,
+            interestCoverage = snapshot.interestCoverage
         )
         val dbFcfConversion = if (snapshot.ttmNetIncome != 0.0) {
             (snapshot.ttmFcf / snapshot.ttmNetIncome) * 100.0
@@ -693,11 +695,50 @@ class FinanceViewModel(
 
     // Firebase Sync & Config Integration
     val firebaseManager = (application as? EquityIQApplication)?.container?.firebaseManager
+    val firebaseAuthStatusMessage = MutableStateFlow<String?>(null)
+    val isFirebaseSyncing = MutableStateFlow(false)
+
+    fun signInWithGoogleIdToken(idToken: String) {
+        viewModelScope.launch {
+            val fm = firebaseManager
+            if (fm == null) {
+                firebaseAuthStatusMessage.value = "Firebase is not initialized."
+                return@launch
+            }
+            isFirebaseSyncing.value = true
+            firebaseAuthStatusMessage.value = "Authenticating with Google..."
+            val r = fm.signInWithGoogleIdToken(idToken)
+            isFirebaseSyncing.value = false
+            if (r.isSuccess) {
+                firebaseAuthStatusMessage.value = "Authenticated & Cloud Synced!"
+            } else {
+                firebaseAuthStatusMessage.value = "Authentication failed: ${r.exceptionOrNull()?.message}"
+            }
+        }
+    }
 
     fun syncWithCloud() {
         viewModelScope.launch {
-            firebaseManager?.syncDataAcrossDevices()
+            val fm = firebaseManager ?: return@launch
+            isFirebaseSyncing.value = true
+            firebaseAuthStatusMessage.value = "Syncing with cloud..."
+            val res = fm.syncDataAcrossDevices()
+            isFirebaseSyncing.value = false
+            firebaseAuthStatusMessage.value = if (res.isSuccess) {
+                "Sync Completed Successfully!"
+            } else {
+                "Sync Failed: ${res.exceptionOrNull()?.message}"
+            }
         }
+    }
+
+    fun signOutFirebase() {
+        firebaseManager?.signOut()
+        firebaseAuthStatusMessage.value = "Signed out successfully."
+    }
+
+    fun setFirebaseAuthStatusMessage(msg: String?) {
+        firebaseAuthStatusMessage.value = msg
     }
 
     fun updateFirebaseConfig(apiKey: String, projectId: String, appId: String, clientId: String) {

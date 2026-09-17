@@ -368,6 +368,7 @@ class FirebaseManager(private val context: Context) {
                 "ttmFcf" to local.ttmFcf,
                 "cashOnHand" to local.cashOnHand,
                 "ltDebt" to local.ltDebt,
+                "interestCoverage" to local.interestCoverage,
                 "ttmNetIncome" to local.ttmNetIncome,
                 "checkedQualitativeTitles" to local.checkedQualitativeTitles
             )
@@ -404,6 +405,7 @@ class FirebaseManager(private val context: Context) {
                     ttmFcf = remoteDoc.getDouble("ttmFcf") ?: 0.0,
                     cashOnHand = remoteDoc.getDouble("cashOnHand") ?: 0.0,
                     ltDebt = remoteDoc.getDouble("ltDebt") ?: 0.0,
+                    interestCoverage = remoteDoc.getDouble("interestCoverage") ?: 0.0,
                     ttmNetIncome = remoteDoc.getDouble("ttmNetIncome") ?: 0.0,
                     checkedQualitativeTitles = remoteDoc.getString("checkedQualitativeTitles") ?: ""
                 )

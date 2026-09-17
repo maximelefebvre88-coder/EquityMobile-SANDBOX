@@ -1,26 +1,36 @@
 {
   "project_info": {
-    "project_number": "1234567890",
-    "project_id": "dummy-project",
-    "storage_bucket": "dummy-project.appspot.com"
+    "project_number": "593133328745",
+    "project_id": "gen-lang-client-0926492267",
+    "storage_bucket": "gen-lang-client-0926492267.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1234567890:android:abcdef123456",
+        "mobilesdk_app_id": "1:593133328745:android:5642d527f25b1dd6bc45f8",
         "android_client_info": {
           "package_name": "com.aistudio.wheeliq.qyzmtx"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "593133328745-bsr3fa02tsgt5o2r6a6qe8hm77mnji8i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "dummy-api-key"
+          "current_key": "AIzaSyC5yOWmDMjkcE2npmYxBaTXqLf-h4kbiV0"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "593133328745-bsr3fa02tsgt5o2r6a6qe8hm77mnji8i.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

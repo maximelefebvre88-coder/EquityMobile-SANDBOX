@@ -800,7 +800,7 @@ fun PortfolioScreen(
                         } else null
                         cachedMarketFcfSentimentVal = fcfSent
 
-                        val bsScore = calculateBalanceSheetHealthScore(it.cashOnHand, it.ltDebt, it.ttmFcf)
+                        val bsScore = calculateBalanceSheetHealthScore(it.cashOnHand, it.ltDebt, it.ttmFcf, it.interestCoverage)
                         val conv = if (it.ttmNetIncome != 0.0) (it.ttmFcf / it.ttmNetIncome) * 100.0 else 0.0
                         val pqScore = calculateProfitQualityRankScore(it.roicPercent, it.fcfMarginPercent, conv)
                         cachedSnapshotScore = (bsScore + pqScore) / 2

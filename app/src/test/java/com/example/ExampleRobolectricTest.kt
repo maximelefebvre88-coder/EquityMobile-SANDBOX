@@ -55,24 +55,39 @@ class ExampleRobolectricTest {
 
   @Test
   fun `calculateBalanceSheetHealthScore behaves correctly for all Tiers`() {
-    // Tier 1: Zero or negative debt condition
-    assertEquals(100, calculateBalanceSheetHealthScore(cashOnHand = 50.0, longTermDebt = 0.0, freeCashFlow = 10.0))
-    assertEquals(100, calculateBalanceSheetHealthScore(cashOnHand = 50.0, longTermDebt = -10.0, freeCashFlow = 10.0))
+    // Tier 1: Zero or negative debt condition (Always 100, regardless of ICR)
+    assertEquals(100, calculateBalanceSheetHealthScore(cashOnHand = 50.0, longTermDebt = 0.0, freeCashFlow = 10.0, interestCoverage = 0.0))
+    assertEquals(100, calculateBalanceSheetHealthScore(cashOnHand = 50.0, longTermDebt = -10.0, freeCashFlow = 10.0, interestCoverage = 5.0))
 
-    // Tier 2: Net Cash Condition (Cash >= Debt)
+    // Tier 2: Net Cash Condition (Cash >= Debt) with ICR >= 20 (No penalty, ICR_Modifier = 1.0)
     // cash = 120, debt = 100. modifier = ((120 - 100)/100) * 10 = 2.0. score = 60 + 2 = 62
-    assertEquals(62, calculateBalanceSheetHealthScore(cashOnHand = 120.0, longTermDebt = 100.0, freeCashFlow = 20.0))
+    assertEquals(62, calculateBalanceSheetHealthScore(cashOnHand = 120.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 20.0))
     // cash = 200, debt = 100. modifier = ((200 - 100)/100) * 10 = 10.0. score = 60 + 10 = 70
-    assertEquals(70, calculateBalanceSheetHealthScore(cashOnHand = 200.0, longTermDebt = 100.0, freeCashFlow = 20.0))
-    // cash = 500, debt = 100. modifier capped at 30.0. score = 60 + 30 = 90
-    assertEquals(90, calculateBalanceSheetHealthScore(cashOnHand = 500.0, longTermDebt = 100.0, freeCashFlow = 20.0))
+    assertEquals(70, calculateBalanceSheetHealthScore(cashOnHand = 200.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 25.0))
+    // cash = 500, debt = 100. modifier capped at 35.0. score = 60 + 35 = 95
+    assertEquals(95, calculateBalanceSheetHealthScore(cashOnHand = 500.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 20.0))
+
+    // Tier 2 with throttled ICR Modifier:
+    // cash = 500, debt = 100, ICR = 12.5 -> ICR_Modifier = 0.5 -> bonus = 35 * 0.5 = 17.5 -> score = 60 + 17.5 = 77.5 -> 78
+    assertEquals(78, calculateBalanceSheetHealthScore(cashOnHand = 500.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 12.5))
+    // cash = 500, debt = 100, ICR = 4.0 -> ICR_Modifier = 0.0 -> bonus = 0 -> score = 60
+    assertEquals(60, calculateBalanceSheetHealthScore(cashOnHand = 500.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 4.0))
 
     // Tier 3: Net Debt Condition (Cash < Debt)
-    // cash = 40, debt = 100, netDebt = 60. FCF = 20. safetyThreshold = 70. ratio = 60/70. rawScore = 60 * (1 - 60/70) = 8.57 -> 9
-    assertEquals(9, calculateBalanceSheetHealthScore(cashOnHand = 40.0, longTermDebt = 100.0, freeCashFlow = 20.0))
-    // Zero or negative FCF with active Net Debt drops score to 0
-    assertEquals(0, calculateBalanceSheetHealthScore(cashOnHand = 40.0, longTermDebt = 100.0, freeCashFlow = 0.0))
-    assertEquals(0, calculateBalanceSheetHealthScore(cashOnHand = 40.0, longTermDebt = 100.0, freeCashFlow = -5.0))
+    // Visa case: Cash = 2320, LT Debt = 2667, FCF = 21600, ICR = 20 -> Score = 90
+    assertEquals(90, calculateBalanceSheetHealthScore(cashOnHand = 2320.0, longTermDebt = 2667.0, freeCashFlow = 21600.0, interestCoverage = 20.0))
+
+    // Tier 3: Net Debt = 1.75 * FCF (Halfway to 3.5x threshold)
+    // cash = 0, debt = 35, FCF = 20 -> safetyThreshold = 70, ratio = 35/70 = 0.5 -> FCF base = 90 * (1 - 0.5) = 45
+    assertEquals(45, calculateBalanceSheetHealthScore(cashOnHand = 0.0, longTermDebt = 35.0, freeCashFlow = 20.0, interestCoverage = 20.0))
+    // Halfway with ICR = 12.5 (0.5 modifier) -> 45 * 0.5 = 22.5 -> 23
+    assertEquals(23, calculateBalanceSheetHealthScore(cashOnHand = 0.0, longTermDebt = 35.0, freeCashFlow = 20.0, interestCoverage = 12.5))
+    // ICR <= 5.0 -> Modifier = 0.0 -> Final Score = 0
+    assertEquals(0, calculateBalanceSheetHealthScore(cashOnHand = 0.0, longTermDebt = 35.0, freeCashFlow = 20.0, interestCoverage = 4.0))
+
+    // Zero or negative FCF with active Net Debt drops score to 0 regardless of ICR
+    assertEquals(0, calculateBalanceSheetHealthScore(cashOnHand = 40.0, longTermDebt = 100.0, freeCashFlow = 0.0, interestCoverage = 20.0))
+    assertEquals(0, calculateBalanceSheetHealthScore(cashOnHand = 40.0, longTermDebt = 100.0, freeCashFlow = -5.0, interestCoverage = 20.0))
   }
 
   @Test

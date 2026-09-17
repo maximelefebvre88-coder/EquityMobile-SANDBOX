@@ -696,14 +696,11 @@ fun SettingsScreen(
                 val isInitialized by (firebaseManager?.isInitialized ?: MutableStateFlow(false)).collectAsStateWithLifecycle()
                 val authState by (firebaseManager?.authState ?: MutableStateFlow(FirebaseAuthState.SignedOut)).collectAsStateWithLifecycle()
                 val syncState by (firebaseManager?.syncState ?: MutableStateFlow(FirebaseSyncState.Idle)).collectAsStateWithLifecycle()
+                val vmSyncMessage by viewModel.firebaseAuthStatusMessage.collectAsStateWithLifecycle()
+                val isSyncing by viewModel.isFirebaseSyncing.collectAsStateWithLifecycle()
 
                 val fbClientIdInput = remember { firebaseManager?.getFirebaseAuthClientId() ?: "" }
                 val isConfigured = remember(isInitialized) { isInitialized }
-
-                var syncMessage by remember { mutableStateOf("") }
-                var isSyncing by remember { mutableStateOf(false) }
-
-                val coroutineScope = rememberCoroutineScope()
 
                 // Google Sign In Launcher
                 val gso = remember(fbClientIdInput) {
@@ -723,23 +720,13 @@ fun SettingsScreen(
                     try {
                         val account = task.getResult(ApiException::class.java)
                         val idToken = account?.idToken
-                        if (idToken != null && firebaseManager != null) {
-                            coroutineScope.launch {
-                                isSyncing = true
-                                syncMessage = "Authenticating with Google..."
-                                val r = firebaseManager.signInWithGoogleIdToken(idToken)
-                                isSyncing = false
-                                if (r.isSuccess) {
-                                    syncMessage = "Authenticated & Cloud Synced!"
-                                } else {
-                                    syncMessage = "Authentication failed: ${r.exceptionOrNull()?.message}"
-                                }
-                            }
+                        if (idToken != null) {
+                            viewModel.signInWithGoogleIdToken(idToken)
                         } else {
-                            syncMessage = "Google account token was null."
+                            viewModel.setFirebaseAuthStatusMessage("Google account token was null.")
                         }
                     } catch (e: ApiException) {
-                        syncMessage = "Google Sign-In failed: Code ${e.statusCode} (${e.localizedMessage})"
+                        viewModel.setFirebaseAuthStatusMessage("Google Sign-In failed: Code ${e.statusCode} (${e.localizedMessage})")
                     }
                 }
 
@@ -818,17 +805,7 @@ fun SettingsScreen(
                                 ) {
                                     Button(
                                         onClick = {
-                                            coroutineScope.launch {
-                                                isSyncing = true
-                                                syncMessage = "Syncing with cloud..."
-                                                val res = firebaseManager?.syncDataAcrossDevices()
-                                                isSyncing = false
-                                                syncMessage = if (res?.isSuccess == true) {
-                                                    "Sync Completed Successfully!"
-                                                } else {
-                                                    "Sync Failed: ${res?.exceptionOrNull()?.message}"
-                                                }
-                                            }
+                                            viewModel.syncWithCloud()
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
                                         modifier = Modifier.weight(1f),
@@ -839,9 +816,8 @@ fun SettingsScreen(
 
                                     OutlinedButton(
                                         onClick = {
-                                            firebaseManager?.signOut()
+                                            viewModel.signOutFirebase()
                                             googleSignInClient.signOut()
-                                            syncMessage = "Signed out successfully."
                                         },
                                         modifier = Modifier.weight(1f)
                                     ) {
@@ -854,7 +830,7 @@ fun SettingsScreen(
                                     GoogleSignInButton(
                                         onClick = {
                                             if (fbClientIdInput.isEmpty() || fbClientIdInput == "YOUR_FIREBASE_CLIENT_ID_HERE") {
-                                                syncMessage = "Please add FIREBASE_CLIENT_ID to the Secrets panel in AI Studio."
+                                                viewModel.setFirebaseAuthStatusMessage("Please add FIREBASE_CLIENT_ID to the Secrets panel in AI Studio.")
                                             } else {
                                                 googleSignInClient.signOut().addOnCompleteListener {
                                                     googleSignInLauncher.launch(googleSignInClient.signInIntent)
@@ -899,11 +875,11 @@ fun SettingsScreen(
                         // Sync State messages
                         val currentSyncState = syncState
                         val displaySyncMsg = when {
-                            isSyncing -> syncMessage
+                            isSyncing -> vmSyncMessage ?: "Cloud Sync in progress..."
                             currentSyncState is FirebaseSyncState.Syncing -> "Cloud Sync in progress..."
                             currentSyncState is FirebaseSyncState.Success -> "All data synced and backed up successfully!"
                             currentSyncState is FirebaseSyncState.Error -> "Sync Alert: ${currentSyncState.message}"
-                            syncMessage.isNotEmpty() -> syncMessage
+                            !vmSyncMessage.isNullOrEmpty() -> vmSyncMessage
                             else -> null
                         }
 

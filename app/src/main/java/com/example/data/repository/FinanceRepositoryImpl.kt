@@ -433,6 +433,7 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
             7. ROIC (Return on Invested Capital, in raw percentage e.g. 24.5)
             8. TTM Net Income (total net income for trailing twelve months, in full raw number e.g. 97000000000)
             9. Common Shares Outstanding (latest reported shares count, in full raw number e.g. 15400000000)
+            10. Interest Coverage (Operating Income / EBIT divided by Interest Expense under TTM column on Income Statement, in raw number e.g. 18.5)
             
             Return a valid JSON object matching the following structure ONLY. No markdown ticks, just pure JSON:
             {
@@ -451,6 +452,7 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
               "historicalFcfYield": number,
               "cashOnHand": number,
               "ltDebt": number,
+              "interestCoverage": number,
               "ttmNetIncome": number
             }
             CRITICAL FORMATTING INSTRUCTIONS:
@@ -673,6 +675,7 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
             ttmFcf = existing?.ttmFcf ?: 0.0,
             cashOnHand = existing?.cashOnHand ?: 0.0,
             ltDebt = existing?.ltDebt ?: 0.0,
+            interestCoverage = existing?.interestCoverage ?: 0.0,
             ttmNetIncome = existing?.ttmNetIncome ?: 0.0,
             checkedQualitativeTitles = existing?.checkedQualitativeTitles ?: ""
         )
@@ -873,6 +876,7 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
         }
 
         val roic = geminiBaseline.roicPercent ?: 0.0
+        val interestCoverage = geminiBaseline.interestCoverage ?: (existing?.interestCoverage ?: 0.0)
         val fcfGrowth = geminiBaseline.fcfGrowthRate ?: 8.0
         val aiHistFcfYield = geminiBaseline.historicalFcfYield ?: 0.0
         val finalHistFcfYield = if (aiHistFcfYield > 0.0) aiHistFcfYield else (if (livePrice > 0.0) (fcfPerShare / livePrice) * 100.0 else 0.0)
@@ -901,6 +905,7 @@ class FinanceRepositoryImpl(private val context: Context) : FinanceRepository {
             ttmFcf = finalTtmFcf,
             cashOnHand = cashOnHand,
             ltDebt = ltDebt,
+            interestCoverage = interestCoverage,
             ttmNetIncome = ttmNetIncome,
             checkedQualitativeTitles = existing?.checkedQualitativeTitles ?: ""
         )

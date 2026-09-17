@@ -64,6 +64,7 @@ fun CalculatorScreen(
     var histFcfYieldInput by remember { mutableStateOf("") }
     var cashOnHandInput by remember { mutableStateOf("") }
     var ltDebtInput by remember { mutableStateOf("") }
+    var interestCoverInput by remember { mutableStateOf("") }
     var roicInput by remember { mutableStateOf("") }
     var ttmNetIncomeInput by remember { mutableStateOf("") }
 
@@ -89,6 +90,8 @@ fun CalculatorScreen(
 
                 val debtM = snap.ltDebt / 1_000_000.0
                 ltDebtInput = if (debtM > 0.0) String.format(Locale.US, "%.2f", debtM) else ""
+
+                interestCoverInput = if (snap.interestCoverage != 0.0) String.format(Locale.US, "%.2f", snap.interestCoverage) else ""
 
                 roicInput = if (snap.roicPercent > 0.0) String.format(Locale.US, "%.2f", snap.roicPercent) else ""
 
@@ -118,6 +121,9 @@ fun CalculatorScreen(
             val parsedDebtM = ltDebtInput.replace(',', '.').toDoubleOrNull()
             val newLtDebt = if (parsedDebtM != null) parsedDebtM * 1_000_000.0 else snap.ltDebt
 
+            val parsedInterestCover = interestCoverInput.replace(',', '.').toDoubleOrNull()
+            val newInterestCover = parsedInterestCover ?: snap.interestCoverage
+
             val parsedNetIncomeM = ttmNetIncomeInput.replace(',', '.').toDoubleOrNull()
             val newNetIncome = if (parsedNetIncomeM != null) parsedNetIncomeM * 1_000_000.0 else snap.ttmNetIncome
 
@@ -144,6 +150,7 @@ fun CalculatorScreen(
                 fcfMarginPercent = newFcfMargin,
                 cashOnHand = newCashOnHand,
                 ltDebt = newLtDebt,
+                interestCoverage = newInterestCover,
                 netCashPerShare = newNetCashPerShare,
                 roicPercent = newRoic,
                 historicalFcfYield = newHistFcfYield,
@@ -1050,7 +1057,9 @@ fun CalculatorScreen(
                                         StatsRow("Cash on hands", String.format(Locale.getDefault(), "$%.2f M", cashTotal / 1_000_000.0))
                                         // 10. Long term debt
                                         StatsRow("Long term debt", String.format(Locale.getDefault(), "$%.2f M", debtTotal / 1_000_000.0))
-                                        // 11. Net cash / share
+                                        // 11. Interest cover
+                                        StatsRow("Interest cover", if (snap.interestCoverage != 0.0) String.format(Locale.getDefault(), "%.2fx", snap.interestCoverage) else "0.00x")
+                                        // 12. Net cash / share
                                         StatsRow("Net cash / share", String.format(Locale.getDefault(), "$%.2f %s", snap.netCashPerShare, tickerCurrency))
                                         // 12. ROIC
                                         StatsRow("ROIC", String.format(Locale.getDefault(), "%.2f%%", snap.roicPercent))
@@ -1112,7 +1121,10 @@ fun CalculatorScreen(
                                         // 10. Long term debt (Editable)
                                         BaselineEditRow("Long term debt", ltDebtInput, { ltDebtInput = it }, "\$M")
 
-                                        // 11. Net cash / share (Calculated)
+                                        // 11. Interest cover (Editable)
+                                        BaselineEditRow("Interest cover", interestCoverInput, { interestCoverInput = it }, "x")
+
+                                        // 12. Net cash / share (Calculated)
                                         CalculatedStatsRow("Net cash / share", String.format(Locale.getDefault(), "$%.2f %s", liveNetCashPerShare, tickerCurrency), "Auto: (Cash - Debt) / Shares")
 
                                         // 12. ROIC (Editable)

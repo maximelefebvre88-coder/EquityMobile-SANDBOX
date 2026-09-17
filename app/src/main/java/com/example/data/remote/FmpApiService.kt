@@ -92,6 +92,7 @@ data class GeminiStockBaseline(
     val historicalFcfYield: Double? = null,
     val cashOnHand: Double? = null,
     val ltDebt: Double? = null,
+    val interestCoverage: Double? = null,
     val ttmNetIncome: Double? = null
 )
 

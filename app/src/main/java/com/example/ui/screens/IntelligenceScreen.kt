@@ -210,12 +210,14 @@ fun IntelligenceScreen(
     val cashOnHand = snap?.cashOnHand ?: 0.0
     val longTermDebt = snap?.ltDebt ?: 0.0
     val freeCashFlow = snap?.ttmFcf ?: 0.0
+    val interestCoverage = snap?.interestCoverage ?: 0.0
 
-    val balanceSheetScore = remember(cashOnHand, longTermDebt, freeCashFlow) {
+    val balanceSheetScore = remember(cashOnHand, longTermDebt, freeCashFlow, interestCoverage) {
         calculateBalanceSheetHealthScore(
             cashOnHand = cashOnHand,
             longTermDebt = longTermDebt,
-            freeCashFlow = freeCashFlow
+            freeCashFlow = freeCashFlow,
+            interestCoverage = interestCoverage
         )
     }
 
@@ -277,12 +279,14 @@ fun IntelligenceScreen(
     // Local inputs for editing baseline inline
     var editCashInput by remember(cashOnHand) { mutableStateOf(String.format(Locale.US, "%.1f", cashOnHand / 1_000_000.0)) }
     var editDebtInput by remember(longTermDebt) { mutableStateOf(String.format(Locale.US, "%.1f", longTermDebt / 1_000_000.0)) }
+    var editInterestCoverInput by remember(interestCoverage) { mutableStateOf(if (interestCoverage != 0.0) String.format(Locale.US, "%.1f", interestCoverage) else "0.0") }
     var editFcfInput by remember(freeCashFlow) { mutableStateOf(String.format(Locale.US, "%.1f", freeCashFlow / 1_000_000.0)) }
 
     // Keep inputs synchronized with active calculator snapshot updates from other tabs
-    LaunchedEffect(snap?.cashOnHand, snap?.ltDebt, snap?.ttmFcf, snap?.roicPercent, snap?.fcfMarginPercent, snap?.ttmNetIncome) {
+    LaunchedEffect(snap?.cashOnHand, snap?.ltDebt, snap?.ttmFcf, snap?.interestCoverage, snap?.roicPercent, snap?.fcfMarginPercent, snap?.ttmNetIncome) {
         val curCash = snap?.cashOnHand ?: 0.0
         val curDebt = snap?.ltDebt ?: 0.0
+        val curIntCover = snap?.interestCoverage ?: 0.0
         val curFcf = snap?.ttmFcf ?: 0.0
         val curRoic = snap?.roicPercent ?: 0.0
         val curMargin = snap?.fcfMarginPercent ?: 0.0
@@ -291,6 +295,7 @@ fun IntelligenceScreen(
 
         editCashInput = String.format(Locale.US, "%.1f", curCash / 1_000_000.0)
         editDebtInput = String.format(Locale.US, "%.1f", curDebt / 1_000_000.0)
+        editInterestCoverInput = if (curIntCover != 0.0) String.format(Locale.US, "%.1f", curIntCover) else "0.0"
         editFcfInput = String.format(Locale.US, "%.1f", curFcf / 1_000_000.0)
         if (curRoic > 0.0) editRoicInput = String.format(Locale.US, "%.1f", curRoic)
         if (curMargin > 0.0) editFcfMarginInput = String.format(Locale.US, "%.1f", curMargin)
@@ -382,6 +387,7 @@ fun IntelligenceScreen(
                         // Reset numbers back to baseline (database values)
                         editCashInput = String.format(Locale.US, "%.1f", cashOnHand / 1_000_000.0)
                         editDebtInput = String.format(Locale.US, "%.1f", longTermDebt / 1_000_000.0)
+                        editInterestCoverInput = if (interestCoverage != 0.0) String.format(Locale.US, "%.1f", interestCoverage) else "0.0"
                         editFcfInput = String.format(Locale.US, "%.1f", freeCashFlow / 1_000_000.0)
                         editRoicInput = if (dbRoic > 0.0) String.format(Locale.US, "%.1f", dbRoic) else "15.0"
                         editFcfMarginInput = if (dbFcfMargin > 0.0) String.format(Locale.US, "%.1f", dbFcfMargin) else "12.0"
@@ -631,13 +637,14 @@ fun IntelligenceScreen(
                         )
 
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             OutlinedTextField(
                                 value = editCashInput,
                                 onValueChange = { editCashInput = it },
-                                label = { Text("Cash (${'$'}M)", fontSize = 10.sp) },
+                                label = { Text("Cash (${'$'}M)", fontSize = 8.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                textStyle = LocalTextStyle.current.copy(fontSize = 11.sp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
@@ -652,7 +659,24 @@ fun IntelligenceScreen(
                             OutlinedTextField(
                                 value = editDebtInput,
                                 onValueChange = { editDebtInput = it },
-                                label = { Text("LT Debt (${'$'}M)", fontSize = 10.sp) },
+                                label = { Text("LT Debt (${'$'}M)", fontSize = 8.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                textStyle = LocalTextStyle.current.copy(fontSize = 11.sp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = LightText,
+                                    unfocusedTextColor = LightText,
+                                    focusedBorderColor = EmeraldGreen,
+                                    cursorColor = EmeraldGreen
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = editInterestCoverInput,
+                                onValueChange = { editInterestCoverInput = it },
+                                label = { Text("Int Cover", fontSize = 8.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                textStyle = LocalTextStyle.current.copy(fontSize = 11.sp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
@@ -667,7 +691,8 @@ fun IntelligenceScreen(
                             OutlinedTextField(
                                 value = editFcfInput,
                                 onValueChange = { editFcfInput = it },
-                                label = { Text("FCF (${'$'}M)", fontSize = 10.sp) },
+                                label = { Text("FCF (${'$'}M)", fontSize = 8.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                textStyle = LocalTextStyle.current.copy(fontSize = 11.sp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
@@ -687,6 +712,7 @@ fun IntelligenceScreen(
                                 if (snapObj != null) {
                                     val cVal = editCashInput.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val dVal = editDebtInput.replace(',', '.').toDoubleOrNull() ?: 0.0
+                                    val iVal = editInterestCoverInput.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val fVal = editFcfInput.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     
                                     val shares = if (snapObj.sharesOutstanding > 0.0) snapObj.sharesOutstanding else 1.0
@@ -698,6 +724,7 @@ fun IntelligenceScreen(
                                         snapObj.copy(
                                             cashOnHand = cVal * 1_000_000.0,
                                             ltDebt = dVal * 1_000_000.0,
+                                            interestCoverage = iVal,
                                             ttmFcf = fVal * 1_000_000.0,
                                             netCashPerShare = netCashPerShareVal,
                                             fcfPerShare = fcfPerShareVal,
@@ -1005,7 +1032,7 @@ fun IntelligenceScreen(
                             )
                         }
                         Text(
-                            text = "Establishes a solid baseline score of 60. Then adds a bonus modifier of +10 points for every multiplier of net cash cushion: ((Cash - Debt) / Debt) * 10, capped at a maximum bonus of +30 points (max tier score of 90/100).",
+                            text = "Establishes a solid baseline score of 60. Adds a surplus cash bonus of ((Cash - Debt) / Debt) * 10 (capped at +35 points, maximum tier score of 95/100), which is progressively throttled if the Interest Coverage Ratio (ICR) falls below 20: Score = 60 + clamp(Bonus * ICR_Modifier, 0, 35).",
                             fontSize = 11.sp,
                             color = GrayText,
                             modifier = Modifier.padding(start = 12.dp, top = 2.dp)
@@ -1029,7 +1056,7 @@ fun IntelligenceScreen(
                             )
                         }
                         Text(
-                            text = "Measures Net Debt (Debt - Cash) against a threshold of 3.5 times trailing Free Cash Flow. The score is scaled down from 60 points based on the ratio: 60 * (1 - (Net Debt / (3.5 * FCF))), with a hard floor of 0.",
+                            text = "Measures Net Debt (Debt - Cash) against a threshold of 3.5 times trailing Free Cash Flow to compute the baseline score scaled from 90 points: 90 * (1 - (Net Debt / (3.5 * FCF))). The baseline is then multiplied by the progressive ICR modifier: Final Score = FCF_Base_Score * ICR_Modifier (maximum tier score of 90/100), where ICR_Modifier = clamp((safeICR - 5.0) / 15.0, 0.0, 1.0).",
                             fontSize = 11.sp,
                             color = GrayText,
                             modifier = Modifier.padding(start = 12.dp, top = 2.dp)
@@ -1253,29 +1280,34 @@ fun IntelligenceScreen(
 
 /**
  * Robust Three-Tier Balance Sheet Health Score Calculation Function.
- * Implements strict hierarchical evaluation with error shielding and safety caps.
+ * Implements strict hierarchical evaluation with error shielding and safety caps,
+ * incorporating a progressive Interest Coverage Ratio (ICR) modifier for debt-carrying tiers.
  */
 fun calculateBalanceSheetHealthScore(
     cashOnHand: Double,
     longTermDebt: Double,
-    freeCashFlow: Double
+    freeCashFlow: Double,
+    interestCoverage: Double = 0.0
 ): Int {
     return try {
         val safeCash = maxOf(0.0, cashOnHand)
         val safeDebt = maxOf(0.0, longTermDebt)
+        val safeICR = maxOf(0.0, interestCoverage)
+        val icrModifier = ((safeICR - 5.0) / 15.0).coerceIn(0.0, 1.0)
 
         // Tier 1: Zero Debt Condition
         if (safeDebt <= 0.0) {
             return 100
         }
 
-        // Tier 2: Net Cash Condition
+        // Tier 2: Net Cash Condition (safeCash >= safeDebt > 0)
         if (safeCash >= safeDebt) {
             val baseline = 60.0
-            val bonusModifier = ((safeCash - safeDebt) / safeDebt) * 10.0
-            val cappedBonus = bonusModifier.coerceIn(0.0, 30.0)
-            val total = baseline + cappedBonus
-            return total.roundToInt().coerceIn(0, 100)
+            val rawBonus = ((safeCash - safeDebt) / safeDebt) * 10.0
+            val bonus = rawBonus.coerceIn(0.0, 35.0)
+            val throttledBonus = (bonus * icrModifier).coerceIn(0.0, 35.0)
+            val total = baseline + throttledBonus
+            return total.roundToInt().coerceIn(0, 95)
         } else {
             // Tier 3: Net Debt Condition (Cash < Debt)
             val netDebt = safeDebt - safeCash
@@ -1287,8 +1319,9 @@ fun calculateBalanceSheetHealthScore(
                 0
             } else {
                 val ratio = netDebt / safetyThreshold
-                val rawScore = 60.0 * (1.0 - ratio)
-                return rawScore.roundToInt().coerceIn(0, 60)
+                val fcfBaseScore = (90.0 * (1.0 - ratio)).coerceIn(0.0, 90.0)
+                val finalScore = fcfBaseScore * icrModifier
+                return finalScore.roundToInt().coerceIn(0, 90)
             }
         }
     } catch (_: Exception) {

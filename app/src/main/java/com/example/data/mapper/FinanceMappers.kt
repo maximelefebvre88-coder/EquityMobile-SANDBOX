@@ -105,6 +105,7 @@ fun CalculatorSnapshotEntity.toDomain(): CalculatorSnapshot {
         ttmFcf = ttmFcf,
         cashOnHand = cashOnHand,
         ltDebt = ltDebt,
+        interestCoverage = interestCoverage,
         ttmNetIncome = ttmNetIncome,
         checkedQualitativeTitles = checkedQualitativeTitles
     )
@@ -135,6 +136,7 @@ fun CalculatorSnapshot.toEntity(): CalculatorSnapshotEntity {
         ttmFcf = ttmFcf,
         cashOnHand = cashOnHand,
         ltDebt = ltDebt,
+        interestCoverage = interestCoverage,
         ttmNetIncome = ttmNetIncome,
         checkedQualitativeTitles = checkedQualitativeTitles
     )
