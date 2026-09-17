@@ -60,17 +60,15 @@ class ExampleRobolectricTest {
     assertEquals(100, calculateBalanceSheetHealthScore(cashOnHand = 50.0, longTermDebt = -10.0, freeCashFlow = 10.0, interestCoverage = 5.0))
 
     // Tier 2: Net Cash Condition (Cash >= Debt) with ICR >= 20 (No penalty, ICR_Modifier = 1.0)
-    // cash = 120, debt = 100. modifier = ((120 - 100)/100) * 10 = 2.0. score = 60 + 2 = 62
-    assertEquals(62, calculateBalanceSheetHealthScore(cashOnHand = 120.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 20.0))
-    // cash = 200, debt = 100. modifier = ((200 - 100)/100) * 10 = 10.0. score = 60 + 10 = 70
-    assertEquals(70, calculateBalanceSheetHealthScore(cashOnHand = 200.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 25.0))
-    // cash = 500, debt = 100. modifier capped at 35.0. score = 60 + 35 = 95
-    assertEquals(95, calculateBalanceSheetHealthScore(cashOnHand = 500.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 20.0))
+    // cash >= debt with ICR >= 20 gives full 35 bonus points -> score = 60 + 35 = 95
+    assertEquals(95, calculateBalanceSheetHealthScore(cashOnHand = 120.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 20.0))
+    assertEquals(95, calculateBalanceSheetHealthScore(cashOnHand = 200.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 25.0))
+    assertEquals(95, calculateBalanceSheetHealthScore(cashOnHand = 500.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 45.0))
 
     // Tier 2 with throttled ICR Modifier:
-    // cash = 500, debt = 100, ICR = 12.5 -> ICR_Modifier = 0.5 -> bonus = 35 * 0.5 = 17.5 -> score = 60 + 17.5 = 77.5 -> 78
+    // cash >= debt, ICR = 12.5 -> ICR_Modifier = 0.5 -> bonus = 35 * 0.5 = 17.5 -> score = 60 + 17.5 = 77.5 -> 78
     assertEquals(78, calculateBalanceSheetHealthScore(cashOnHand = 500.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 12.5))
-    // cash = 500, debt = 100, ICR = 4.0 -> ICR_Modifier = 0.0 -> bonus = 0 -> score = 60
+    // cash >= debt, ICR = 4.0 -> ICR_Modifier = 0.0 -> bonus = 0 -> score = 60
     assertEquals(60, calculateBalanceSheetHealthScore(cashOnHand = 500.0, longTermDebt = 100.0, freeCashFlow = 20.0, interestCoverage = 4.0))
 
     // Tier 3: Net Debt Condition (Cash < Debt)

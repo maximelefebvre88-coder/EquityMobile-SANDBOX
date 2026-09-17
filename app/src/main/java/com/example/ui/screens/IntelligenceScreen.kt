@@ -1032,7 +1032,7 @@ fun IntelligenceScreen(
                             )
                         }
                         Text(
-                            text = "Establishes a solid baseline score of 60. Adds a surplus cash bonus of ((Cash - Debt) / Debt) * 10 (capped at +35 points, maximum tier score of 95/100), which is progressively throttled if the Interest Coverage Ratio (ICR) falls below 20: Score = 60 + clamp(Bonus * ICR_Modifier, 0, 35).",
+                            text = "Establishes a solid baseline score of 60. Adds up to +35 bonus points based on the Interest Coverage Ratio (ICR), reaching the maximum tier score of 95/100 when ICR >= 20: Score = 60 + (35 * ICR_Modifier), where ICR_Modifier = clamp((safeICR - 5.0) / 15.0, 0.0, 1.0).",
                             fontSize = 11.sp,
                             color = GrayText,
                             modifier = Modifier.padding(start = 12.dp, top = 2.dp)
@@ -1303,10 +1303,8 @@ fun calculateBalanceSheetHealthScore(
         // Tier 2: Net Cash Condition (safeCash >= safeDebt > 0)
         if (safeCash >= safeDebt) {
             val baseline = 60.0
-            val rawBonus = ((safeCash - safeDebt) / safeDebt) * 10.0
-            val bonus = rawBonus.coerceIn(0.0, 35.0)
-            val throttledBonus = (bonus * icrModifier).coerceIn(0.0, 35.0)
-            val total = baseline + throttledBonus
+            val bonus = 35.0 * icrModifier
+            val total = baseline + bonus
             return total.roundToInt().coerceIn(0, 95)
         } else {
             // Tier 3: Net Debt Condition (Cash < Debt)
