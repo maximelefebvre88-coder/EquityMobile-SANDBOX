@@ -1637,21 +1637,21 @@ fun PortfolioScreen(
                                     Text(
                                         text = "${String.format(Locale.US, "%.2f%%", averageOwnersFcfYieldPct)}$fcfAnnStr",
                                         fontSize = 12.sp,
-                                        color = TealAccent,
+                                        color = AmberWarning,
                                         fontWeight = FontWeight.Bold
                                     )
                                 } else if (assignedShares > 0 && estimatedAnnualFcfValue > 0.0) {
                                     Text(
                                         text = if (isAmountsHidden) "••••" else "${formatCurrency(estimatedAnnualFcfValue)}/yr",
                                         fontSize = 12.sp,
-                                        color = TealAccent,
+                                        color = AmberWarning,
                                         fontWeight = FontWeight.Bold
                                     )
                                 } else if (averageOwnersFcfYieldPct > 0.0) {
                                     Text(
                                         text = String.format(Locale.US, "%.2f%%", averageOwnersFcfYieldPct),
                                         fontSize = 12.sp,
-                                        color = TealAccent,
+                                        color = AmberWarning,
                                         fontWeight = FontWeight.Bold
                                     )
                                 } else {
