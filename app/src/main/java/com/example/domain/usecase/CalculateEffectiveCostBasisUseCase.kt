@@ -2,17 +2,25 @@ package com.example.domain.usecase
 
 import com.example.domain.model.TradeEntity
 
+data class DetailedCostBasis(
+    val currentCostBasis: Double,
+    val futureCostBasis: Double,
+    val leftoverPremium: Double,
+    val avgBuyPrice: Double,
+    val totalSharesHeld: Int,
+    val totalPremiumCollected: Double,
+    val hasActiveCSP: Boolean,
+    val activeCspStrike: Double?
+)
+
 class CalculateEffectiveCostBasisUseCase {
-    operator fun invoke(
+
+    fun calculateDetailed(
         symbol: String,
         livePrice: Double,
         manuallyEnteredCostBasis: Double?,
         trades: List<TradeEntity>
-    ): Double {
-        if (manuallyEnteredCostBasis != null) {
-            return manuallyEnteredCostBasis
-        }
-
+    ): DetailedCostBasis {
         val tickerTrades = trades.filter { it.ticker.equals(symbol, ignoreCase = true) }
         val now = System.currentTimeMillis()
 
@@ -99,9 +107,31 @@ class CalculateEffectiveCostBasisUseCase {
             }
         }
         val avgBuyPrice = if (totalBuyShares > 0) totalBuyCost / totalBuyShares else 0.0
-        val assignmentCost = avgBuyPrice * totalSharesHeld
 
-        // 4. Determine if there is an active CSP
+        // 4. Current Cost Basis (for held shares)
+        val currentCostBasis = if (manuallyEnteredCostBasis != null) {
+            manuallyEnteredCostBasis
+        } else if (totalSharesHeld > 0) {
+            val discountPerShare = totalPremiumCollected / totalSharesHeld.toDouble()
+            (avgBuyPrice - discountPerShare).coerceAtLeast(0.0)
+        } else {
+            0.0
+        }
+
+        // 5. Leftover premium calculation:
+        // Premium absorbed by current shares is min(totalPremiumCollected, costToAcquireHeldShares)
+        val sharesCostToCover = if (manuallyEnteredCostBasis != null) {
+            manuallyEnteredCostBasis * totalSharesHeld
+        } else {
+            avgBuyPrice * totalSharesHeld
+        }
+        val leftoverPremium = if (totalSharesHeld > 0) {
+            (totalPremiumCollected - sharesCostToCover).coerceAtLeast(0.0)
+        } else {
+            totalPremiumCollected.coerceAtLeast(0.0)
+        }
+
+        // 6. Active CSP and Future Cost Basis
         val activeCSPs = tickerTrades.filter {
             it.tradeType == "Sell CSP" &&
             !it.isClosed &&
@@ -110,47 +140,69 @@ class CalculateEffectiveCostBasisUseCase {
             (it.expiryDate == null || it.expiryDate > now)
         }
         val hasActiveCSP = activeCSPs.isNotEmpty()
+        val totalCspContracts = if (hasActiveCSP) activeCSPs.sumOf { it.contracts } else 0
+        val activeCspStrike = if (hasActiveCSP) {
+            if (totalCspContracts > 0) {
+                activeCSPs.sumOf { it.strikePrice * it.contracts } / totalCspContracts
+            } else {
+                activeCSPs.first().strikePrice
+            }
+        } else null
 
-        val basePrice = when {
-            totalSharesHeld > 0 -> {
-                assignmentCost / totalSharesHeld
-            }
-            hasActiveCSP -> {
-                // Calculate average strike price of active CSPs weighted by contracts
-                val totalContracts = activeCSPs.sumOf { it.contracts }
-                if (totalContracts > 0) {
-                    activeCSPs.sumOf { it.strikePrice * it.contracts } / totalContracts
-                } else {
-                    activeCSPs.first().strikePrice
-                }
-            }
-            else -> {
-                livePrice
-            }
+        val futureBasePrice = when {
+            hasActiveCSP -> activeCspStrike ?: 0.0
+            else -> livePrice
         }
 
-        val divisor = when {
-            totalSharesHeld > 0 -> {
-                totalSharesHeld.toDouble()
-            }
-            hasActiveCSP -> {
-                activeCSPs.sumOf { it.contracts } * 100.0
-            }
+        val futureDivisor = when {
+            hasActiveCSP -> (if (totalCspContracts > 0) totalCspContracts else 1) * 100.0
             else -> {
                 val lastOptionTrade = tickerTrades.lastOrNull {
                     it.tradeType == "Sell CSP" || it.tradeType == "Buy to Close" || it.tradeType == "Sell CC"
                 }
                 val contracts = lastOptionTrade?.contracts ?: 1
-                contracts * 100.0
+                (if (contracts > 0) contracts else 1) * 100.0
             }
         }
 
-        val premiumDiscountPerShare = if (divisor > 0.0) {
-            totalPremiumCollected / divisor
+        val futureDiscountPerShare = if (futureDivisor > 0.0) {
+            leftoverPremium / futureDivisor
         } else {
             0.0
         }
 
-        return (basePrice - premiumDiscountPerShare).coerceAtLeast(0.0)
+        val futureCostBasis = if (futureBasePrice > 0.0) {
+            (futureBasePrice - futureDiscountPerShare).coerceAtLeast(0.0)
+        } else {
+            0.0
+        }
+
+        return DetailedCostBasis(
+            currentCostBasis = currentCostBasis,
+            futureCostBasis = futureCostBasis,
+            leftoverPremium = leftoverPremium,
+            avgBuyPrice = avgBuyPrice,
+            totalSharesHeld = totalSharesHeld,
+            totalPremiumCollected = totalPremiumCollected,
+            hasActiveCSP = hasActiveCSP,
+            activeCspStrike = activeCspStrike
+        )
+    }
+
+    operator fun invoke(
+        symbol: String,
+        livePrice: Double,
+        manuallyEnteredCostBasis: Double?,
+        trades: List<TradeEntity>
+    ): Double {
+        if (manuallyEnteredCostBasis != null) {
+            return manuallyEnteredCostBasis
+        }
+        val detailed = calculateDetailed(symbol, livePrice, manuallyEnteredCostBasis, trades)
+        return if (detailed.totalSharesHeld > 0) {
+            detailed.currentCostBasis
+        } else {
+            detailed.futureCostBasis
+        }
     }
 }

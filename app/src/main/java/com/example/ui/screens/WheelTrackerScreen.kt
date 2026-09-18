@@ -364,13 +364,20 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
 
         // 5. Effective Cost Basis (Assignment price - total net premiums collected) / shares
         val manuallyEnteredCostBasis = activeTickerObj?.manuallyEnteredCostBasis
-        val effectiveCostBasis = remember(totalSharesHeld, assignmentCost, totalPremiumCollected, currentLivePrice, tickerTrades, manuallyEnteredCostBasis) {
-            viewModel.calculateEffectiveCostBasis(
+        val detailedCostBasis = remember(totalSharesHeld, assignmentCost, totalPremiumCollected, currentLivePrice, tickerTrades, manuallyEnteredCostBasis) {
+            viewModel.calculateDetailedCostBasis(
                 symbol = activeTicker,
                 livePrice = currentLivePrice,
                 manuallyEnteredCostBasis = manuallyEnteredCostBasis,
                 trades = tickerTrades
             )
+        }
+        val effectiveCostBasis = if (manuallyEnteredCostBasis != null) {
+            manuallyEnteredCostBasis
+        } else if (totalSharesHeld > 0) {
+            detailedCostBasis.currentCostBasis
+        } else {
+            detailedCostBasis.futureCostBasis
         }
 
         LazyColumn(
@@ -500,7 +507,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                             SummaryCard(
                                 title = "Total Shares Held",
                                 value = totalSharesHeld.toString(),
-                                desc = "Assigned vs Called",
+                                desc = if (totalSharesHeld > 0 && detailedCostBasis.avgBuyPrice > 0.0) "Avg @ $${String.format(Locale.US, "%.2f", detailedCostBasis.avgBuyPrice)}" else "Assigned vs Called",
                                 modifier = Modifier.weight(1f)
                             )
                             SummaryCard(
@@ -522,7 +529,7 @@ fun WheelTrackerScreen(viewModel: FinanceViewModel) {
                             SummaryCard(
                                 title = "Effective Cost Basis",
                                 value = String.format(Locale.getDefault(), "$%.2f", effectiveCostBasis),
-                                desc = "Strike - Net premiums",
+                                desc = if (totalSharesHeld > 0 && detailedCostBasis.leftoverPremium > 0.0) "Future: $${String.format(Locale.US, "%.2f", detailedCostBasis.futureCostBasis)}" else "Strike - Net premiums",
                                 modifier = Modifier.weight(1f)
                             )
                         }

@@ -145,4 +145,90 @@ class CalculateEffectiveCostBasisUseCaseTest {
         // Effective cost basis = 150.00 - 1.99 = 148.01.
         assertEquals(148.01, costBasis, 0.001)
     }
+
+    @Test
+    fun testVisaScenarioWithBoughtSharesAndExcessPremium() {
+        val now = System.currentTimeMillis()
+
+        // User bought 7 shares of Visa at $306.55, collected $2816.00 in premium
+        val trades = listOf(
+            TradeEntity(
+                id = 1,
+                ticker = "V",
+                tradeType = "Buying shares",
+                date = now - 86400000L * 60,
+                contracts = 7, // 7 shares
+                strikePrice = 306.55,
+                netCreditDebit = -2145.85
+            ),
+            TradeEntity(
+                id = 2,
+                ticker = "V",
+                tradeType = "Sell CSP",
+                date = now - 86400000L * 30,
+                contracts = 1,
+                strikePrice = 300.00,
+                premiumPerShare = 28.16,
+                netCreditDebit = 2816.00,
+                isClosed = true
+            )
+        )
+
+        val detailed = useCase.calculateDetailed(
+            symbol = "V",
+            livePrice = 306.55,
+            manuallyEnteredCostBasis = null,
+            trades = trades
+        )
+
+        assertEquals(7, detailed.totalSharesHeld)
+        assertEquals(306.55, detailed.avgBuyPrice, 0.001)
+        assertEquals(0.0, detailed.currentCostBasis, 0.001)
+        assertEquals(670.15, detailed.leftoverPremium, 0.001)
+        // Future cost basis on realtime share price ($306.55) with $670.15 leftover premium over 100 shares ($6.7015/sh):
+        assertEquals(299.8485, detailed.futureCostBasis, 0.001)
+    }
+
+    @Test
+    fun testUserExampleTwoSharesBoughtWithExcessPremium() {
+        val now = System.currentTimeMillis()
+
+        // User collected $1000 in premium and bought 2 shares at $250
+        val trades = listOf(
+            TradeEntity(
+                id = 1,
+                ticker = "XYZ",
+                tradeType = "Buying shares",
+                date = now - 86400000L * 30,
+                contracts = 2,
+                strikePrice = 250.00,
+                netCreditDebit = -500.00
+            ),
+            TradeEntity(
+                id = 2,
+                ticker = "XYZ",
+                tradeType = "Sell CSP",
+                date = now - 86400000L * 20,
+                contracts = 1,
+                strikePrice = 250.00,
+                premiumPerShare = 10.00,
+                netCreditDebit = 1000.00,
+                isClosed = true
+            )
+        )
+
+        val detailed = useCase.calculateDetailed(
+            symbol = "XYZ",
+            livePrice = 250.00,
+            manuallyEnteredCostBasis = null,
+            trades = trades
+        )
+
+        assertEquals(2, detailed.totalSharesHeld)
+        assertEquals(250.00, detailed.avgBuyPrice, 0.001)
+        assertEquals(0.0, detailed.currentCostBasis, 0.001)
+        assertEquals(500.00, detailed.leftoverPremium, 0.001)
+        // Future cost basis: 250 - (500 / 100) = 245.00
+        assertEquals(245.00, detailed.futureCostBasis, 0.001)
+    }
 }

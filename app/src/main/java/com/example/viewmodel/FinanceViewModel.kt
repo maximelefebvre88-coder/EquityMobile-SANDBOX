@@ -8,6 +8,7 @@ import com.example.domain.model.PortfolioSummary
 import com.example.domain.model.TradeEntity
 import com.example.domain.model.WatchlistTicker
 import com.example.domain.model.FmpSearchResponse
+import com.example.domain.usecase.DetailedCostBasis
 import com.example.domain.usecase.FinanceUseCases
 import com.example.EquityIQApplication
 import com.example.ui.screens.calculateBalanceSheetHealthScore
@@ -637,6 +638,15 @@ class FinanceViewModel(
         trades: List<TradeEntity>
     ): Double {
         return useCases.calculateEffectiveCostBasis(symbol, livePrice, manuallyEnteredCostBasis, trades)
+    }
+
+    fun calculateDetailedCostBasis(
+        symbol: String,
+        livePrice: Double,
+        manuallyEnteredCostBasis: Double?,
+        trades: List<TradeEntity>
+    ): DetailedCostBasis {
+        return useCases.calculateEffectiveCostBasis.calculateDetailed(symbol, livePrice, manuallyEnteredCostBasis, trades)
     }
 
     fun calculatePortfolioSummary(

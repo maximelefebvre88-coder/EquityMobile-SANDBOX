@@ -786,14 +786,6 @@ fun PortfolioScreen(
                 }
                 val avgBuyPrice = if (totalBuyShares > 0) totalBuyCost / totalBuyShares else 0.0
 
-                // Determine active Cost Basis:
-                val activeCostBasis = viewModel.calculateEffectiveCostBasis(
-                    symbol = ticker.symbol,
-                    livePrice = ticker.livePrice,
-                    manuallyEnteredCostBasis = ticker.manuallyEnteredCostBasis,
-                    trades = tickerTrades
-                )
-
                 // Query calculator snapshots to find DCF values, Market FCF sentiment & owner FCF parameters
                 val symClean = ticker.symbol.uppercase().trim()
                 val liveSnapshot = allSnapshots[symClean] ?: allSnapshots[ticker.symbol]
@@ -863,6 +855,19 @@ fun PortfolioScreen(
 
                 // Unrealized P&L
                 val stockLivePrice = if (ticker.livePrice > 0.0) ticker.livePrice else (effectiveSnapshot?.currentPrice ?: (cachedSnapshotPrice ?: 0.0))
+                val detailedCostBasis = viewModel.calculateDetailedCostBasis(
+                    symbol = ticker.symbol,
+                    livePrice = stockLivePrice,
+                    manuallyEnteredCostBasis = ticker.manuallyEnteredCostBasis,
+                    trades = tickerTrades
+                )
+                val activeCostBasis = if (ticker.manuallyEnteredCostBasis != null) {
+                    ticker.manuallyEnteredCostBasis
+                } else if (detailedCostBasis.totalSharesHeld > 0) {
+                    detailedCostBasis.currentCostBasis
+                } else {
+                    detailedCostBasis.futureCostBasis
+                }
                 val baseCostBasis = ticker.manuallyEnteredCostBasis ?: avgBuyPrice
                 val unrealizedPnL = if (assignedShares > 0) {
                     (stockLivePrice - baseCostBasis) * assignedShares
@@ -1205,7 +1210,7 @@ fun PortfolioScreen(
                                 .height(IntrinsicSize.Min),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // 1. Cost Basis Square (Navigates to Wheel Tracker on Click)
+                            // 1. Split Cost Basis Square (Current Shares vs Future Projected Cost Basis)
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -1216,41 +1221,93 @@ fun PortfolioScreen(
                                     .clickable { onNavigateToWheel(ticker.symbol) }
                                     .padding(horizontal = 6.dp, vertical = 7.dp)
                             ) {
-                                Column {
-                                    Text(
-                                        text = "COST BASIS",
-                                        fontSize = 8.sp,
-                                        color = GrayText,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.4.sp,
-                                        maxLines = 1
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    val costDisplay = activeCostBasis
-                                    Text(
-                                        text = formatCurrency(costDisplay),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = LightText,
-                                        maxLines = 1
-                                    )
-                                    Spacer(modifier = Modifier.height(1.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Left: Current Cost Basis
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
                                         Text(
-                                            text = if (ticker.manuallyEnteredCostBasis != null) "Manual" else "Calculated",
-                                            fontSize = 7.5.sp,
-                                            color = if (ticker.manuallyEnteredCostBasis != null) AmberWarning else GrayText,
-                                            fontWeight = FontWeight.SemiBold,
+                                            text = "CURRENT",
+                                            fontSize = 8.sp,
+                                            color = GrayText,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.4.sp,
                                             maxLines = 1
                                         )
-                                        if (ticker.manuallyEnteredCostBasis != null) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = if (assignedShares > 0 || ticker.manuallyEnteredCostBasis != null) {
+                                                formatCurrency(detailedCostBasis.currentCostBasis)
+                                            } else "--",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = LightText,
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(1.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
-                                                text = " (M)",
+                                                text = if (ticker.manuallyEnteredCostBasis != null) "Manual" else "Basis",
                                                 fontSize = 7.5.sp,
-                                                color = AmberWarning,
-                                                fontWeight = FontWeight.Bold
+                                                color = if (ticker.manuallyEnteredCostBasis != null) AmberWarning else GrayText,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1
                                             )
+                                            if (ticker.manuallyEnteredCostBasis != null) {
+                                                Text(
+                                                    text = " (M)",
+                                                    fontSize = 7.5.sp,
+                                                    color = AmberWarning,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
+                                    }
+
+                                    // Subtle Vertical Divider
+                                    Box(
+                                        modifier = Modifier
+                                            .width(1.dp)
+                                            .height(30.dp)
+                                            .background(Color.White.copy(alpha = 0.08f))
+                                    )
+
+                                    // Right: Future Projected Cost Basis
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(start = 5.dp),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
+                                        Text(
+                                            text = "FUTURE",
+                                            fontSize = 8.sp,
+                                            color = EmeraldGreen.copy(alpha = 0.9f),
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.4.sp,
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = if (detailedCostBasis.futureCostBasis > 0.0) {
+                                                formatCurrency(detailedCostBasis.futureCostBasis)
+                                            } else "--",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (detailedCostBasis.futureCostBasis > 0.0) EmeraldGreen else GrayText.copy(alpha = 0.6f),
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(1.dp))
+                                        Text(
+                                            text = if (detailedCostBasis.hasActiveCSP) "Active CSP" else "Realtime",
+                                            fontSize = 7.5.sp,
+                                            color = GrayText,
+                                            maxLines = 1
+                                        )
                                     }
                                 }
                             }
@@ -1560,7 +1617,12 @@ fun PortfolioScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Shares owned:", fontSize = 12.sp, color = GrayText)
-                                Text("$assignedShares shares", fontSize = 12.sp, color = LightText, fontWeight = FontWeight.Bold)
+                                val sharesOwnedText = if (assignedShares > 0 && avgBuyPrice > 0.0) {
+                                    "$assignedShares shares @ ${formatCurrency(avgBuyPrice, isHidden = isAmountsHidden)}"
+                                } else {
+                                    "$assignedShares shares"
+                                }
+                                Text(sharesOwnedText, fontSize = 12.sp, color = LightText, fontWeight = FontWeight.Bold)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
