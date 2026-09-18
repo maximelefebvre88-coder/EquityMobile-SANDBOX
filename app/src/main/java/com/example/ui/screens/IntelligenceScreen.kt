@@ -19,7 +19,6 @@ import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -435,42 +434,6 @@ fun IntelligenceScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                }
-
-                // Reset Button
-                IconButton(
-                    onClick = {
-                        qualCriteria.forEach { it.checked = false }
-                        // Reset numbers back to empty / baseline
-                        editCashInput = ""
-                        editDebtInput = ""
-                        editInterestCoverInput = ""
-                        editFcfInput = ""
-                        
-                        snapshot?.let { snapObj ->
-                            viewModel.updateCalculatorSnapshot(
-                                snapObj.copy(
-                                    cashOnHand = 0.0,
-                                    ltDebt = 0.0,
-                                    interestCoverage = 0.0,
-                                    ttmFcf = 0.0,
-                                    checkedQualitativeTitles = ""
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.05f))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Reset Checklist",
-                        tint = LightText,
-                        modifier = Modifier.size(16.dp)
-                    )
                 }
             }
         }
