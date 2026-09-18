@@ -803,7 +803,7 @@ fun PortfolioScreen(
                 var cachedFcfPerShare by remember { mutableStateOf<Double?>(null) }
                 var cachedHistoricalFcfYield by remember { mutableStateOf<Double?>(null) }
                 var cachedSnapshotPrice by remember { mutableStateOf<Double?>(null) }
-                var cachedSnapshotScore by remember(ticker.symbol) { mutableIntStateOf(0) }
+                var cachedSnapshotScore by remember(ticker.symbol) { mutableStateOf<Int?>(null) }
                 LaunchedEffect(ticker.symbol, liveSnapshot) {
                     val snap = liveSnapshot ?: viewModel.getCalculatorSnapshot(ticker.symbol)
                     if (snap != null) {
@@ -819,10 +819,21 @@ fun PortfolioScreen(
                         } else null
                         cachedMarketFcfSentimentVal = fcfSent
 
-                        val bsScore = calculateBalanceSheetHealthScore(snap.cashOnHand, snap.ltDebt, snap.ttmFcf, snap.interestCoverage)
-                        val conv = if (snap.ttmNetIncome != 0.0) (snap.ttmFcf / snap.ttmNetIncome) * 100.0 else 0.0
-                        val pqScore = calculateProfitQualityRankScore(snap.roicPercent, snap.fcfMarginPercent, conv)
-                        cachedSnapshotScore = (bsScore + pqScore) / 2
+                        val hasBs = snap.cashOnHand > 0.0 || snap.ltDebt > 0.0 || snap.ttmFcf != 0.0 || snap.interestCoverage != 0.0
+                        val hasPq = snap.roicPercent > 0.0 || (snap.fcfMarginPercent > 0.0 && snap.fcfMarginPercent != 10.0) || snap.ttmNetIncome != 0.0
+                        if (hasBs || hasPq) {
+                            val bsScore = if (hasBs) calculateBalanceSheetHealthScore(snap.cashOnHand, snap.ltDebt, snap.ttmFcf, snap.interestCoverage) else 0
+                            val conv = if (snap.ttmNetIncome != 0.0) (snap.ttmFcf / snap.ttmNetIncome) * 100.0 else 0.0
+                            val pqScore = if (hasPq) calculateProfitQualityRankScore(snap.roicPercent, snap.fcfMarginPercent, conv) else 0
+                            val tot = when {
+                                hasBs && hasPq -> (bsScore + pqScore) / 2
+                                hasBs -> bsScore
+                                else -> pqScore
+                            }
+                            cachedSnapshotScore = if (tot > 0) tot else null
+                        } else {
+                            cachedSnapshotScore = null
+                        }
                     }
                     if (snap == null || ticker.livePrice <= 0.0) {
                         viewModel.syncTicker(ticker.symbol, force = false)
@@ -833,10 +844,10 @@ fun PortfolioScreen(
                 val effectiveFcfPerShare = effectiveSnapshot?.fcfPerShare?.takeIf { it > 0.0 } ?: cachedFcfPerShare ?: 0.0
                 val effectiveHistoricalFcfYield = effectiveSnapshot?.historicalFcfYield?.takeIf { it > 0.0 } ?: cachedHistoricalFcfYield ?: 0.0
 
-                val evaluatedTotalScore = tickerScores[symClean]
+                val evaluatedTotalScore: Int? = tickerScores[symClean]
                     ?: tickerScores[ticker.symbol]
                     ?: cachedSnapshotScore
-                val isHighScore = evaluatedTotalScore > 80
+                val isHighScore = evaluatedTotalScore != null && evaluatedTotalScore > 80
 
                 val dcfVal = if (liveSnapshot != null) {
                     viewModel.calculateMoatQualityAdjustedDcf(liveSnapshot).first
@@ -1108,18 +1119,25 @@ fun PortfolioScreen(
                                 Column {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(ticker.symbol, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = LightText)
-                                        if (isHighScore) {
+                                        if (evaluatedTotalScore != null && evaluatedTotalScore > 0) {
                                             Spacer(modifier = Modifier.width(6.dp))
+                                            val badgeColor = when {
+                                                evaluatedTotalScore > 80 -> Color(0xFFFFD700)
+                                                evaluatedTotalScore >= 60 -> EmeraldGreen
+                                                evaluatedTotalScore >= 40 -> TealAccent
+                                                else -> AmberWarning
+                                            }
+                                            val badgeText = if (isHighScore) "★ $evaluatedTotalScore" else "$evaluatedTotalScore"
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(6.dp))
-                                                    .background(Color(0xFFB45309).copy(alpha = 0.25f))
-                                                    .border(0.8.dp, Color(0xFFFFD700).copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                                    .background(badgeColor.copy(alpha = if (isHighScore) 0.25f else 0.15f))
+                                                    .border(0.8.dp, badgeColor.copy(alpha = if (isHighScore) 0.6f else 0.45f), RoundedCornerShape(6.dp))
                                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                                             ) {
                                                 Text(
-                                                    text = "★ $evaluatedTotalScore",
-                                                    color = Color(0xFFFFD700),
+                                                    text = badgeText,
+                                                    color = badgeColor,
                                                     fontSize = 9.5.sp,
                                                     fontWeight = FontWeight.Black
                                                 )

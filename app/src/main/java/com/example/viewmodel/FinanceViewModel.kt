@@ -389,26 +389,47 @@ class FinanceViewModel(
 
     val tickerScores: StateFlow<Map<String, Int>> = useCases.repository.getAllCalculatorSnapshotsFlow()
         .map { snapshots ->
-            snapshots.associate { snap ->
-                val bsScore = calculateBalanceSheetHealthScore(
-                    cashOnHand = snap.cashOnHand,
-                    longTermDebt = snap.ltDebt,
-                    freeCashFlow = snap.ttmFcf,
-                    interestCoverage = snap.interestCoverage
-                )
-                val dbFcfConversion = if (snap.ttmNetIncome != 0.0) {
-                    (snap.ttmFcf / snap.ttmNetIncome) * 100.0
+            snapshots.mapNotNull { snap ->
+                val hasBsData = snap.cashOnHand > 0.0 || snap.ltDebt > 0.0 || snap.ttmFcf != 0.0 || snap.interestCoverage != 0.0
+                val hasPqData = snap.roicPercent > 0.0 || (snap.fcfMarginPercent > 0.0 && snap.fcfMarginPercent != 10.0) || snap.ttmNetIncome != 0.0
+                
+                if (!hasBsData && !hasPqData) {
+                    null
                 } else {
-                    0.0
+                    val bsScore = if (hasBsData) {
+                        calculateBalanceSheetHealthScore(
+                            cashOnHand = snap.cashOnHand,
+                            longTermDebt = snap.ltDebt,
+                            freeCashFlow = snap.ttmFcf,
+                            interestCoverage = snap.interestCoverage
+                        )
+                    } else 0
+                    val dbFcfConversion = if (snap.ttmNetIncome != 0.0) {
+                        (snap.ttmFcf / snap.ttmNetIncome) * 100.0
+                    } else {
+                        0.0
+                    }
+                    val pqScore = if (hasPqData) {
+                        calculateProfitQualityRankScore(
+                            roic = snap.roicPercent,
+                            fcfMargin = snap.fcfMarginPercent,
+                            fcfConversion = dbFcfConversion
+                        )
+                    } else 0
+
+                    val totalScore = when {
+                        hasBsData && hasPqData -> (bsScore + pqScore) / 2
+                        hasBsData -> bsScore
+                        else -> pqScore
+                    }
+
+                    if (totalScore > 0) {
+                        snap.symbol.uppercase().trim() to totalScore
+                    } else {
+                        null
+                    }
                 }
-                val pqScore = calculateProfitQualityRankScore(
-                    roic = snap.roicPercent,
-                    fcfMargin = snap.fcfMarginPercent,
-                    fcfConversion = dbFcfConversion
-                )
-                val totalScore = (bsScore + pqScore) / 2
-                snap.symbol.uppercase().trim() to totalScore
-            }
+            }.toMap()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 

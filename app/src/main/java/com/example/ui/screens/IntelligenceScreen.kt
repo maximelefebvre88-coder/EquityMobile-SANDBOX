@@ -212,18 +212,15 @@ fun IntelligenceScreen(
     val freeCashFlow = snap?.ttmFcf ?: 0.0
     val interestCoverage = snap?.interestCoverage ?: 0.0
 
-    val balanceSheetScore = remember(cashOnHand, longTermDebt, freeCashFlow, interestCoverage) {
-        calculateBalanceSheetHealthScore(
-            cashOnHand = cashOnHand,
-            longTermDebt = longTermDebt,
-            freeCashFlow = freeCashFlow,
-            interestCoverage = interestCoverage
-        )
-    }
-
-    // Profit Quality Score inputs from CalculatorSnapshot or fallback
+    // Profit Quality Score inputs automatically sourced from CalculatorSnapshot
     val dbRoic = snap?.roicPercent ?: 0.0
-    val dbFcfMargin = snap?.fcfMarginPercent ?: 0.0
+    val dbFcfMargin = if (snap != null && snap.ttmRevenue > 0.0 && snap.ttmFcf != 0.0) {
+        (snap.ttmFcf / snap.ttmRevenue) * 100.0
+    } else if (snap != null && snap.fcfMarginPercent > 0.0 && snap.fcfMarginPercent != 10.0) {
+        snap.fcfMarginPercent
+    } else {
+        0.0
+    }
 
     val dbFcfConversion = remember(snap?.ttmFcf, snap?.ttmNetIncome) {
         val fcf = snap?.ttmFcf ?: 0.0
@@ -235,29 +232,115 @@ fun IntelligenceScreen(
         }
     }
 
-    var editRoicInput by remember(dbRoic) {
-        mutableStateOf(if (dbRoic > 0.0) String.format(Locale.US, "%.1f", dbRoic) else "15.0")
+    var editCashInput by remember(activeTicker) {
+        mutableStateOf(if (cashOnHand > 0.0) String.format(Locale.US, "%.1f", cashOnHand / 1_000_000.0) else "")
     }
-    var editFcfMarginInput by remember(dbFcfMargin) {
-        mutableStateOf(if (dbFcfMargin > 0.0) String.format(Locale.US, "%.1f", dbFcfMargin) else "12.0")
+    var editDebtInput by remember(activeTicker) {
+        mutableStateOf(if (longTermDebt > 0.0) String.format(Locale.US, "%.1f", longTermDebt / 1_000_000.0) else "")
     }
-    var editFcfConversionInput by remember(dbFcfConversion) {
-        mutableStateOf(if (dbFcfConversion != 0.0) String.format(Locale.US, "%.1f", dbFcfConversion) else "85.0")
+    var editInterestCoverInput by remember(activeTicker) {
+        mutableStateOf(if (interestCoverage != 0.0) String.format(Locale.US, "%.1f", interestCoverage) else "")
+    }
+    var editFcfInput by remember(activeTicker) {
+        mutableStateOf(if (freeCashFlow != 0.0) String.format(Locale.US, "%.1f", freeCashFlow / 1_000_000.0) else "")
     }
 
-    val roicVal = editRoicInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-    val fcfMarginVal = editFcfMarginInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-    val fcfConversionVal = editFcfConversionInput.replace(',', '.').toDoubleOrNull() ?: 0.0
+    // Keep inputs synchronized if activeTicker changes or fresh snapshot loads for a different symbol
+    var lastSyncedSymbol by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(activeTicker, snap?.symbol) {
+        if (snap != null && lastSyncedSymbol != snap.symbol) {
+            lastSyncedSymbol = snap.symbol
+            val c = snap.cashOnHand
+            val d = snap.ltDebt
+            val ic = snap.interestCoverage
+            val f = snap.ttmFcf
 
-    val profitQualityScore = remember(roicVal, fcfMarginVal, fcfConversionVal) {
-        calculateProfitQualityRankScore(
-            roic = roicVal,
-            fcfMargin = fcfMarginVal,
-            fcfConversion = fcfConversionVal
+            editCashInput = if (c > 0.0) String.format(Locale.US, "%.1f", c / 1_000_000.0) else ""
+            editDebtInput = if (d > 0.0) String.format(Locale.US, "%.1f", d / 1_000_000.0) else ""
+            editInterestCoverInput = if (ic != 0.0) String.format(Locale.US, "%.1f", ic) else ""
+            editFcfInput = if (f != 0.0) String.format(Locale.US, "%.1f", f / 1_000_000.0) else ""
+        }
+    }
+
+    val cVal = editCashInput.replace(',', '.').toDoubleOrNull() ?: 0.0
+    val dVal = editDebtInput.replace(',', '.').toDoubleOrNull() ?: 0.0
+    val iVal = editInterestCoverInput.replace(',', '.').toDoubleOrNull() ?: 0.0
+    val fVal = editFcfInput.replace(',', '.').toDoubleOrNull() ?: 0.0
+
+    val hasBsData = editCashInput.isNotBlank() || editDebtInput.isNotBlank() || editInterestCoverInput.isNotBlank() || editFcfInput.isNotBlank()
+    val hasPqData = dbRoic > 0.0 || dbFcfMargin > 0.0 || dbFcfConversion != 0.0
+
+    val balanceSheetScore = remember(cVal, dVal, fVal, iVal, hasBsData) {
+        if (hasBsData) {
+            calculateBalanceSheetHealthScore(
+                cashOnHand = cVal * 1_000_000.0,
+                longTermDebt = dVal * 1_000_000.0,
+                freeCashFlow = fVal * 1_000_000.0,
+                interestCoverage = iVal
+            )
+        } else 0
+    }
+
+    val profitQualityScore = remember(dbRoic, dbFcfMargin, dbFcfConversion, hasPqData) {
+        if (hasPqData) {
+            calculateProfitQualityRankScore(
+                roic = dbRoic,
+                fcfMargin = dbFcfMargin,
+                fcfConversion = dbFcfConversion
+            )
+        } else 0
+    }
+
+    val totalScore = remember(balanceSheetScore, profitQualityScore, hasBsData, hasPqData) {
+        when {
+            hasBsData && hasPqData -> (balanceSheetScore + profitQualityScore) / 2
+            hasBsData -> balanceSheetScore
+            hasPqData -> profitQualityScore
+            else -> 0
+        }
+    }
+
+    // Automatically persist any Balance Sheet changes entered by the user to the active CalculatorSnapshot
+    LaunchedEffect(
+        editCashInput,
+        editDebtInput,
+        editInterestCoverInput,
+        editFcfInput
+    ) {
+        val snapObj = snap ?: return@LaunchedEffect
+        if (!hasBsData) return@LaunchedEffect
+
+        val newCash = if (editCashInput.isNotBlank()) cVal * 1_000_000.0 else snapObj.cashOnHand
+        val newDebt = if (editDebtInput.isNotBlank()) dVal * 1_000_000.0 else snapObj.ltDebt
+        val newInterestCover = if (editInterestCoverInput.isNotBlank()) iVal else snapObj.interestCoverage
+        val newFcf = if (editFcfInput.isNotBlank()) fVal * 1_000_000.0 else snapObj.ttmFcf
+
+        val shares = if (snapObj.sharesOutstanding > 0.0) snapObj.sharesOutstanding else 1.0
+        val netCashPerShareVal = (newCash - newDebt) / shares
+        val fcfPerShareVal = newFcf / shares
+        val calculatedMargin = if (snapObj.ttmRevenue > 0.0) (newFcf / snapObj.ttmRevenue) * 100.0 else snapObj.fcfMarginPercent
+
+        val updatedSnap = snapObj.copy(
+            cashOnHand = newCash,
+            ltDebt = newDebt,
+            interestCoverage = newInterestCover,
+            ttmFcf = newFcf,
+            netCashPerShare = netCashPerShareVal,
+            fcfPerShare = fcfPerShareVal,
+            fcfMarginPercent = calculatedMargin
         )
-    }
 
-    val totalScore = ((balanceSheetScore + profitQualityScore) / 2)
+        if (updatedSnap.cashOnHand != snapObj.cashOnHand ||
+            updatedSnap.ltDebt != snapObj.ltDebt ||
+            updatedSnap.interestCoverage != snapObj.interestCoverage ||
+            updatedSnap.ttmFcf != snapObj.ttmFcf ||
+            updatedSnap.netCashPerShare != snapObj.netCashPerShare ||
+            updatedSnap.fcfPerShare != snapObj.fcfPerShare ||
+            updatedSnap.fcfMarginPercent != snapObj.fcfMarginPercent
+        ) {
+            viewModel.updateCalculatorSnapshot(updatedSnap)
+        }
+    }
 
     val totalQualPoints = qualCriteria.filter { it.checked }.sumOf { it.points }
     val checkedCount = qualCriteria.count { it.checked }
@@ -274,32 +357,6 @@ fun IntelligenceScreen(
         totalQualPoints >= 40 -> EmeraldGreen
         totalQualPoints >= 15 -> AmberWarning
         else -> GrayText
-    }
-
-    // Local inputs for editing baseline inline
-    var editCashInput by remember(cashOnHand) { mutableStateOf(String.format(Locale.US, "%.1f", cashOnHand / 1_000_000.0)) }
-    var editDebtInput by remember(longTermDebt) { mutableStateOf(String.format(Locale.US, "%.1f", longTermDebt / 1_000_000.0)) }
-    var editInterestCoverInput by remember(interestCoverage) { mutableStateOf(if (interestCoverage != 0.0) String.format(Locale.US, "%.1f", interestCoverage) else "0.0") }
-    var editFcfInput by remember(freeCashFlow) { mutableStateOf(String.format(Locale.US, "%.1f", freeCashFlow / 1_000_000.0)) }
-
-    // Keep inputs synchronized with active calculator snapshot updates from other tabs
-    LaunchedEffect(snap?.cashOnHand, snap?.ltDebt, snap?.ttmFcf, snap?.interestCoverage, snap?.roicPercent, snap?.fcfMarginPercent, snap?.ttmNetIncome) {
-        val curCash = snap?.cashOnHand ?: 0.0
-        val curDebt = snap?.ltDebt ?: 0.0
-        val curIntCover = snap?.interestCoverage ?: 0.0
-        val curFcf = snap?.ttmFcf ?: 0.0
-        val curRoic = snap?.roicPercent ?: 0.0
-        val curMargin = snap?.fcfMarginPercent ?: 0.0
-        val curNetInc = snap?.ttmNetIncome ?: 0.0
-        val curConv = if (curNetInc != 0.0) (curFcf / curNetInc) * 100.0 else 0.0
-
-        editCashInput = String.format(Locale.US, "%.1f", curCash / 1_000_000.0)
-        editDebtInput = String.format(Locale.US, "%.1f", curDebt / 1_000_000.0)
-        editInterestCoverInput = if (curIntCover != 0.0) String.format(Locale.US, "%.1f", curIntCover) else "0.0"
-        editFcfInput = String.format(Locale.US, "%.1f", curFcf / 1_000_000.0)
-        if (curRoic > 0.0) editRoicInput = String.format(Locale.US, "%.1f", curRoic)
-        if (curMargin > 0.0) editFcfMarginInput = String.format(Locale.US, "%.1f", curMargin)
-        if (curConv != 0.0) editFcfConversionInput = String.format(Locale.US, "%.1f", curConv)
     }
 
     LazyColumn(
@@ -384,17 +441,22 @@ fun IntelligenceScreen(
                 IconButton(
                     onClick = {
                         qualCriteria.forEach { it.checked = false }
-                        // Reset numbers back to baseline (database values)
-                        editCashInput = String.format(Locale.US, "%.1f", cashOnHand / 1_000_000.0)
-                        editDebtInput = String.format(Locale.US, "%.1f", longTermDebt / 1_000_000.0)
-                        editInterestCoverInput = if (interestCoverage != 0.0) String.format(Locale.US, "%.1f", interestCoverage) else "0.0"
-                        editFcfInput = String.format(Locale.US, "%.1f", freeCashFlow / 1_000_000.0)
-                        editRoicInput = if (dbRoic > 0.0) String.format(Locale.US, "%.1f", dbRoic) else "15.0"
-                        editFcfMarginInput = if (dbFcfMargin > 0.0) String.format(Locale.US, "%.1f", dbFcfMargin) else "12.0"
-                        editFcfConversionInput = if (dbFcfConversion != 0.0) String.format(Locale.US, "%.1f", dbFcfConversion) else "85.0"
+                        // Reset numbers back to empty / baseline
+                        editCashInput = ""
+                        editDebtInput = ""
+                        editInterestCoverInput = ""
+                        editFcfInput = ""
                         
                         snapshot?.let { snapObj ->
-                            viewModel.updateCalculatorSnapshot(snapObj.copy(checkedQualitativeTitles = ""))
+                            viewModel.updateCalculatorSnapshot(
+                                snapObj.copy(
+                                    cashOnHand = 0.0,
+                                    ltDebt = 0.0,
+                                    interestCoverage = 0.0,
+                                    ttmFcf = 0.0,
+                                    checkedQualitativeTitles = ""
+                                )
+                            )
                         }
                     },
                     modifier = Modifier
@@ -630,7 +692,7 @@ fun IntelligenceScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "Adjust values (in Millions) to test Balance Sheet stability. Click 'APPLY DATA' to persist as active calculator metrics.",
+                            text = "Adjust values (in Millions) to test Balance Sheet stability. Scores update automatically.",
                             fontSize = 11.sp,
                             color = GrayText,
                             lineHeight = 15.sp
@@ -704,41 +766,6 @@ fun IntelligenceScreen(
                                 )
                             )
                         }
-
-                        // Save Balance Sheet Metrics Button
-                        Button(
-                            onClick = {
-                                val snapObj = snap
-                                if (snapObj != null) {
-                                    val cVal = editCashInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-                                    val dVal = editDebtInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-                                    val iVal = editInterestCoverInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-                                    val fVal = editFcfInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-                                    
-                                    val shares = if (snapObj.sharesOutstanding > 0.0) snapObj.sharesOutstanding else 1.0
-                                    val netCashPerShareVal = ((cVal - dVal) * 1_000_000.0) / shares
-                                    val fcfPerShareVal = (fVal * 1_000_000.0) / shares
-                                    val fcfMarginVal = if (snapObj.ttmRevenue > 0.0) ((fVal * 1_000_000.0) / snapObj.ttmRevenue) * 100.0 else snapObj.fcfMarginPercent
-                                    
-                                    viewModel.updateCalculatorSnapshot(
-                                        snapObj.copy(
-                                            cashOnHand = cVal * 1_000_000.0,
-                                            ltDebt = dVal * 1_000_000.0,
-                                            interestCoverage = iVal,
-                                            ttmFcf = fVal * 1_000_000.0,
-                                            netCashPerShare = netCashPerShareVal,
-                                            fcfPerShare = fcfPerShareVal,
-                                            fcfMarginPercent = fcfMarginVal
-                                        )
-                                    )
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen, contentColor = NavyDark),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("APPLY BALANCE SHEET DATA", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                        }
                     }
                 }
             }
@@ -769,7 +796,7 @@ fun IntelligenceScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "Adjust values to test Profit Quality Rank. Click 'APPLY PROFIT DATA' to persist as active calculator metrics.",
+                            text = "Profit Quality metrics are automatically sourced from the Calculator tab.",
                             fontSize = 11.sp,
                             color = GrayText,
                             lineHeight = 15.sp
@@ -779,80 +806,23 @@ fun IntelligenceScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            OutlinedTextField(
-                                value = editRoicInput,
-                                onValueChange = { editRoicInput = it },
-                                label = { Text("ROIC (%)", fontSize = 10.sp) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                singleLine = true,
-                                modifier = Modifier.weight(1f),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = LightText,
-                                    unfocusedTextColor = LightText,
-                                    focusedBorderColor = AmberWarning,
-                                    cursorColor = AmberWarning
-                                )
+                            QuantitativeMetricDisplay(
+                                label = "ROIC",
+                                value = if (dbRoic > 0.0) String.format(Locale.US, "%.1f%%", dbRoic) else "--",
+                                modifier = Modifier.weight(1f)
                             )
 
-                            OutlinedTextField(
-                                value = editFcfMarginInput,
-                                onValueChange = { editFcfMarginInput = it },
-                                label = { Text("FCF Margin (%)", fontSize = 10.sp) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                singleLine = true,
-                                modifier = Modifier.weight(1f),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = LightText,
-                                    unfocusedTextColor = LightText,
-                                    focusedBorderColor = AmberWarning,
-                                    cursorColor = AmberWarning
-                                )
+                            QuantitativeMetricDisplay(
+                                label = "FCF Margin",
+                                value = if (dbFcfMargin > 0.0) String.format(Locale.US, "%.1f%%", dbFcfMargin) else "--",
+                                modifier = Modifier.weight(1f)
                             )
 
-                            OutlinedTextField(
-                                value = editFcfConversionInput,
-                                onValueChange = { editFcfConversionInput = it },
-                                label = { Text("FCF Conv (%)", fontSize = 10.sp) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                singleLine = true,
-                                modifier = Modifier.weight(1f),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = LightText,
-                                    unfocusedTextColor = LightText,
-                                    focusedBorderColor = AmberWarning,
-                                    cursorColor = AmberWarning
-                                )
+                            QuantitativeMetricDisplay(
+                                label = "FCF Conv",
+                                value = if (dbFcfConversion != 0.0) String.format(Locale.US, "%.1f%%", dbFcfConversion) else "--",
+                                modifier = Modifier.weight(1f)
                             )
-                        }
-
-                        Button(
-                            onClick = {
-                                val snapObj = snap
-                                if (snapObj != null) {
-                                    val rVal = editRoicInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-                                    val mVal = editFcfMarginInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-                                    val convVal = editFcfConversionInput.replace(',', '.').toDoubleOrNull() ?: 0.0
-                                    
-                                    val newNetIncome = if ((convVal != 0.0) && (snapObj.ttmFcf != 0.0)) {
-                                        snapObj.ttmFcf / (convVal / 100.0)
-                                    } else {
-                                        snapObj.ttmNetIncome
-                                    }
-
-                                    viewModel.updateCalculatorSnapshot(
-                                        snapObj.copy(
-                                            roicPercent = rVal,
-                                            fcfMarginPercent = mVal,
-                                            ttmNetIncome = newNetIncome
-                                        )
-                                    )
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AmberWarning, contentColor = NavyDark),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("APPLY PROFIT DATA", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                     }
                 }
@@ -1295,6 +1265,11 @@ fun calculateBalanceSheetHealthScore(
         val safeICR = maxOf(0.0, interestCoverage)
         val icrModifier = ((safeICR - 5.0) / 15.0).coerceIn(0.0, 1.0)
 
+        // If all metrics are zero/empty, no balance sheet data has been entered
+        if (safeCash <= 0.0 && safeDebt <= 0.0 && freeCashFlow == 0.0 && safeICR <= 0.0) {
+            return 0
+        }
+
         // Tier 1: Zero Debt Condition
         if (safeDebt <= 0.0) {
             return 100
@@ -1354,6 +1329,10 @@ fun calculateProfitQualityRankScore(
         val rInput = roic ?: 0.0
         val mInput = fcfMargin ?: 0.0
         val cInput = fcfConversion ?: 0.0
+
+        if (rInput <= 0.0 && mInput <= 0.0 && cInput <= 0.0) {
+            return 0
+        }
 
         // Detect if inputs are expressed as percentages (e.g., 15.0 for 15.0%) or decimals (e.g., 0.15 for 15.0%) independently.
         // If the absolute value of the parameter is strictly greater than 1.0 (or 2.0 for FCF conversion), we treat it as percentage mode.
@@ -1867,6 +1846,44 @@ fun InteractiveCriteriaRow(
                     fontSize = 9.sp
                 )
             }
+        }
+    }
+}
+
+/**
+ * High-fidelity non-editable metric display box for Quantitative Engine metrics sourced from Calculator tab.
+ */
+@Composable
+fun QuantitativeMetricDisplay(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.White.copy(alpha = 0.04f))
+            .border(1.dp, BorderGray.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+            .padding(vertical = 10.dp, horizontal = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = label.uppercase(Locale.US),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = GrayText
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = value,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (value != "--") AmberWarning else GrayText
+            )
         }
     }
 }
