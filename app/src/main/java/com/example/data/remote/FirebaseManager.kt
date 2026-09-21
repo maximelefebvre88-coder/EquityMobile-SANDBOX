@@ -82,7 +82,7 @@ class FirebaseManager(private val context: Context) {
 
             if (app != null) {
                 auth = FirebaseAuth.getInstance()
-                firestore = FirebaseFirestore.getInstance()
+                firestore = FirebaseFirestore.getInstance(app, "equityiqmobiledata")
                 isInitialized.value = true
 
                 // Setup auth listener
