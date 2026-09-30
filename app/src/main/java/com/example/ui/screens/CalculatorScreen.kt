@@ -233,8 +233,9 @@ fun CalculatorScreen(
                                     val matchingTicker = watchlist.find { it.symbol.equals(activeTicker, ignoreCase = true) }
                                     val dbLogoUrl = matchingTicker?.logoUrl
                                     val fallbackSymbol = activeTicker.uppercase().trim()
-                                    val fallbackLogoUrl = "https://financialmodelingprep.com/image-stock/$fallbackSymbol.png"
-                                    val finalLogoUrl = if (!dbLogoUrl.isNullOrEmpty()) dbLogoUrl else fallbackLogoUrl
+                                    val normSymbol = if (fallbackSymbol in listOf("BRK.B", "BRK-B", "BRKB", "BRK.A", "BRK-A", "BRKA")) "BRKA" else fallbackSymbol.replace(".", "-")
+                                    val fallbackLogoUrl = "https://cdn.jsdelivr.net/gh/davidepalazzo/ticker-logos@main/ticker_icons/$normSymbol.png"
+                                    val finalLogoUrl = if (!dbLogoUrl.isNullOrEmpty() && !dbLogoUrl.contains("financialmodelingprep.com")) dbLogoUrl else fallbackLogoUrl
 
                                     Box(
                                         modifier = Modifier
