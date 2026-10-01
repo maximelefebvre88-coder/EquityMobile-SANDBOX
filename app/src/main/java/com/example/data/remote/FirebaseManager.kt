@@ -424,14 +424,14 @@ class FirebaseManager(private val context: Context) {
             val local = localTickers.find { it.symbol.equals(symbol, ignoreCase = true) }
 
             val companyName = remoteDoc.getString("companyName") ?: symbol
-            val livePrice = remoteDoc.getDouble("livePrice") ?: 0.0
-            val lastFetched = remoteDoc.getLong("lastFetched") ?: 0L
-            val manuallyEnteredCostBasis = remoteDoc.getDouble("manuallyEnteredCostBasis")
-            val targetPrice = remoteDoc.getDouble("targetPrice")
-            val targetYield = remoteDoc.getDouble("targetYield")
+            val livePrice = remoteDoc.getDouble("livePrice") ?: (remoteDoc.getLong("livePrice")?.toDouble() ?: 0.0)
+            val lastFetched = remoteDoc.getLong("lastFetched") ?: (remoteDoc.getDouble("lastFetched")?.toLong() ?: 0L)
+            val manuallyEnteredCostBasis = remoteDoc.getDouble("manuallyEnteredCostBasis") ?: remoteDoc.getLong("manuallyEnteredCostBasis")?.toDouble()
+            val targetPrice = remoteDoc.getDouble("targetPrice") ?: remoteDoc.getLong("targetPrice")?.toDouble()
+            val targetYield = remoteDoc.getDouble("targetYield") ?: remoteDoc.getLong("targetYield")?.toDouble()
             val logoUrl = remoteDoc.getString("logoUrl")
-            val displayOrder = remoteDoc.getLong("displayOrder")?.toInt() ?: 0
-            val changePercent = remoteDoc.getDouble("changePercent")
+            val displayOrder = remoteDoc.getLong("displayOrder")?.toInt() ?: (remoteDoc.getDouble("displayOrder")?.toInt() ?: 0)
+            val changePercent = remoteDoc.getDouble("changePercent") ?: remoteDoc.getLong("changePercent")?.toDouble()
 
             if (local == null) {
                 val newEntity = WatchlistTickerEntity(
@@ -597,30 +597,30 @@ class FirebaseManager(private val context: Context) {
             val symbol = remoteDoc.id.uppercase().trim()
             val entity = CalculatorSnapshotEntity(
                 symbol = symbol,
-                currentPrice = remoteDoc.getDouble("currentPrice") ?: 0.0,
-                fcfPerShare = remoteDoc.getDouble("fcfPerShare") ?: 0.0,
-                revenuePerShare = remoteDoc.getDouble("revenuePerShare") ?: 0.0,
-                fcfMarginPercent = remoteDoc.getDouble("fcfMarginPercent") ?: 0.0,
-                roicPercent = remoteDoc.getDouble("roicPercent") ?: 0.0,
-                netCashPerShare = remoteDoc.getDouble("netCashPerShare") ?: 0.0,
-                sharesOutstanding = remoteDoc.getDouble("sharesOutstanding") ?: 0.0,
-                marketCap = remoteDoc.getDouble("marketCap") ?: 0.0,
-                fcfGrowthRate = remoteDoc.getDouble("fcfGrowthRate") ?: 0.0,
-                equityGrowthRate = remoteDoc.getDouble("equityGrowthRate") ?: 0.0,
-                fundamentalGrowthRate = remoteDoc.getDouble("fundamentalGrowthRate") ?: 0.0,
-                historicalFcfMargin = remoteDoc.getDouble("historicalFcfMargin") ?: 0.0,
-                riskFreeRate = remoteDoc.getDouble("riskFreeRate") ?: 0.0,
-                riskPremium = remoteDoc.getDouble("riskPremium") ?: 0.0,
-                terminalGrowthRate = remoteDoc.getDouble("terminalGrowthRate") ?: 0.0,
-                highGrowthYears = remoteDoc.getLong("highGrowthYears")?.toInt() ?: 10,
-                historicalFcfYield = remoteDoc.getDouble("historicalFcfYield") ?: 0.0,
-                lastFetched = remoteDoc.getLong("lastFetched") ?: 0L,
-                ttmRevenue = remoteDoc.getDouble("ttmRevenue") ?: 0.0,
-                ttmFcf = remoteDoc.getDouble("ttmFcf") ?: 0.0,
-                cashOnHand = remoteDoc.getDouble("cashOnHand") ?: 0.0,
-                ltDebt = remoteDoc.getDouble("ltDebt") ?: 0.0,
-                interestCoverage = remoteDoc.getDouble("interestCoverage") ?: 0.0,
-                ttmNetIncome = remoteDoc.getDouble("ttmNetIncome") ?: 0.0,
+                currentPrice = remoteDoc.getDouble("currentPrice") ?: (remoteDoc.getLong("currentPrice")?.toDouble() ?: 0.0),
+                fcfPerShare = remoteDoc.getDouble("fcfPerShare") ?: (remoteDoc.getLong("fcfPerShare")?.toDouble() ?: 0.0),
+                revenuePerShare = remoteDoc.getDouble("revenuePerShare") ?: (remoteDoc.getLong("revenuePerShare")?.toDouble() ?: 0.0),
+                fcfMarginPercent = remoteDoc.getDouble("fcfMarginPercent") ?: (remoteDoc.getLong("fcfMarginPercent")?.toDouble() ?: 0.0),
+                roicPercent = remoteDoc.getDouble("roicPercent") ?: (remoteDoc.getLong("roicPercent")?.toDouble() ?: 0.0),
+                netCashPerShare = remoteDoc.getDouble("netCashPerShare") ?: (remoteDoc.getLong("netCashPerShare")?.toDouble() ?: 0.0),
+                sharesOutstanding = remoteDoc.getDouble("sharesOutstanding") ?: (remoteDoc.getLong("sharesOutstanding")?.toDouble() ?: 0.0),
+                marketCap = remoteDoc.getDouble("marketCap") ?: (remoteDoc.getLong("marketCap")?.toDouble() ?: 0.0),
+                fcfGrowthRate = remoteDoc.getDouble("fcfGrowthRate") ?: (remoteDoc.getLong("fcfGrowthRate")?.toDouble() ?: 0.0),
+                equityGrowthRate = remoteDoc.getDouble("equityGrowthRate") ?: (remoteDoc.getLong("equityGrowthRate")?.toDouble() ?: 0.0),
+                fundamentalGrowthRate = remoteDoc.getDouble("fundamentalGrowthRate") ?: (remoteDoc.getLong("fundamentalGrowthRate")?.toDouble() ?: 0.0),
+                historicalFcfMargin = remoteDoc.getDouble("historicalFcfMargin") ?: (remoteDoc.getLong("historicalFcfMargin")?.toDouble() ?: 0.0),
+                riskFreeRate = remoteDoc.getDouble("riskFreeRate") ?: (remoteDoc.getLong("riskFreeRate")?.toDouble() ?: 0.0),
+                riskPremium = remoteDoc.getDouble("riskPremium") ?: (remoteDoc.getLong("riskPremium")?.toDouble() ?: 0.0),
+                terminalGrowthRate = remoteDoc.getDouble("terminalGrowthRate") ?: (remoteDoc.getLong("terminalGrowthRate")?.toDouble() ?: 0.0),
+                highGrowthYears = remoteDoc.getLong("highGrowthYears")?.toInt() ?: (remoteDoc.getDouble("highGrowthYears")?.toInt() ?: 10),
+                historicalFcfYield = remoteDoc.getDouble("historicalFcfYield") ?: (remoteDoc.getLong("historicalFcfYield")?.toDouble() ?: 0.0),
+                lastFetched = remoteDoc.getLong("lastFetched") ?: (remoteDoc.getDouble("lastFetched")?.toLong() ?: 0L),
+                ttmRevenue = remoteDoc.getDouble("ttmRevenue") ?: (remoteDoc.getLong("ttmRevenue")?.toDouble() ?: 0.0),
+                ttmFcf = remoteDoc.getDouble("ttmFcf") ?: (remoteDoc.getLong("ttmFcf")?.toDouble() ?: 0.0),
+                cashOnHand = remoteDoc.getDouble("cashOnHand") ?: (remoteDoc.getLong("cashOnHand")?.toDouble() ?: 0.0),
+                ltDebt = remoteDoc.getDouble("ltDebt") ?: (remoteDoc.getLong("ltDebt")?.toDouble() ?: 0.0),
+                interestCoverage = remoteDoc.getDouble("interestCoverage") ?: (remoteDoc.getLong("interestCoverage")?.toDouble() ?: 0.0),
+                ttmNetIncome = remoteDoc.getDouble("ttmNetIncome") ?: (remoteDoc.getLong("ttmNetIncome")?.toDouble() ?: 0.0),
                 checkedQualitativeTitles = remoteDoc.getString("checkedQualitativeTitles") ?: ""
             )
             snapshotDao.insertSnapshot(entity)
